@@ -429,53 +429,23 @@ BOOL APIENTRY DllMain(HINSTANCE hModule, DWORD reason, LPVOID lpReserved)
     case DLL_PROCESS_DETACH:
     {
       dbg("--- DLL_PROCESS_DETACH (%s) ---", lpReserved?"process terminating":"DLL unloaded");
-      if(!lpReserved)
-        unsetHooks(SoftTHHooks);
-      /*emergencyRelease = true;
-      releaseHangingD3D9New();*/
 
-      // Restore any hanging gamma ramps
-      std::list<GAMMARAMP*>::iterator i;
-      while(!restoreGammaRamps.empty()) {
-
-        i = restoreGammaRamps.begin();
-        if(!SetDeviceGammaRamp((*i)->hdc, (void*) &((*i)->ramp)))
-          dbg("DLL_PROCESS_DETACH: Restoring gamma ramp failed!");
-
-        ReleaseDC((*i)->hwnd, (*i)->hdc);
-        restoreGammaRamps.remove(*i);
+      // DllMain executes under the Windows loader lock. Do not call
+      // FreeLibrary, DWM, GDI, or other complex teardown paths here during
+      // process termination; Windows is already unloading those modules and
+      // recursive loader activity can deadlock shutdown.
+      if(lpReserved) {
+        dbg("DLL_PROCESS_DETACH: process termination - skipping complex teardown");
+        break;
       }
 
-			if(hLibD3D9) {
-				FreeLibrary(hLibD3D9);
-				hLibD3D9 = NULL;
-			}
-			if(hLibDXGI) {
-				FreeLibrary(hLibDXGI);
-				hLibDXGI = NULL;
-			}
-			if(hLibD3D10) {
-				FreeLibrary(hLibD3D10);
-				hLibD3D10 = NULL;
-			}
-			if(hLibD3D10_1) {
-				FreeLibrary(hLibD3D10_1);
-				hLibD3D10_1 = NULL;
-			}
-			if(hLibD3D11) {
-				FreeLibrary(hLibD3D11);
-				hLibD3D11 = NULL;
-			}
-			if(hLibD3D12) {
-				FreeLibrary(hLibD3D12);
-				hLibD3D12 = NULL;
-			}
+      // Explicit DLL unload: restore SoftTH's in-process hooks only.
+      unsetHooks(SoftTHHooks);
 
-      if(didDisableComposition) {
-        DwmEnableComposition(DWM_EC_ENABLECOMPOSITION);
-        Sleep(100);
-      }
-      dbg("end");
+      // Do not FreeLibrary() the system D3D/DXGI modules from DllMain.
+      // Retaining their references until process exit is safer than re-entering
+      // the loader while its lock is held.
+      dbg("DLL_PROCESS_DETACH: explicit unload hooks restored");
       break;
     }
 
