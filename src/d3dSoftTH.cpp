@@ -1266,7 +1266,7 @@ static int detectManufacturer(int devID, int headID)
 {
   int result = MANF_UNKNOWN;
   IDirect3D9Ex *d3d = NULL;
-  Direct3DCreate9Ex(-D3D_SDK_VERSION, &d3d);
+  dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3d);
   if(!d3d) {
     dbg("detectManufacturer: Direct3DCreate9Ex failed!", devID);
     return result;
@@ -1344,7 +1344,7 @@ static int detectTransportType(int devID)
   D3DPRESENT_PARAMETERS pp;
   int method = OUTMETHOD_BLIT;
 
-  Direct3DCreate9Ex(-D3D_SDK_VERSION, &d3d);
+  dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3d);
   if(!d3d) {
     dbg("Using transport method BLIT for device %d (Direct3DCreate9Ex failed)", devID);
     return method;
