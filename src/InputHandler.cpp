@@ -191,13 +191,14 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 
 void InputHandler::hookRemoteThread(DWORD threadID)
 {
+  if(config.getNumAdditionalHeads() == 0)
+    return;
   setHook(threadID);
 }
 
 void InputHandler::newThread()
 {
-  //dbg("InputHandler: Attaching to thread 0x%08X", threadID);
-  setHook();
+  // Per-thread auto-hooking disabled for modern Windows compatibility.
 }
 
 void InputHandler::detachThread()
