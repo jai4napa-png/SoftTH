@@ -200,7 +200,7 @@
        if (o->cfg->transportMethod == OUTMETHOD_LOCAL) {
 --- a/src/main.h
 +++ b/src/main.h
-@@ -36,6 +36,10 @@
+@@ -36,6 +36,11 @@
  #define DLL __declspec(dllimport)
  #endif // SOFTTHMAIN
  
