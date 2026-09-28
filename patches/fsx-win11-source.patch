@@ -182,20 +182,6 @@
 +  #define SOFTTHDEVID "SOFTTH\\301\\X86\\FSXWIN11"
 +  #define SOFTTHDEVIDW L"SOFTTH\\301\\X86\\FSXWIN11"
  #endif
---- a/src/d3d9.h
-+++ b/src/d3d9.h
-@@ -2031,8 +2031,9 @@
- /* D3D9Ex interfaces
- /*********************/
- 
--// SoftTH NOTE: The following line commented out
--//extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
-+// SoftTH provides/uses this entry point internally. Modern SDK headers no
-+// longer supply the declaration through this local legacy d3d9 header.
-+HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
- 
- 
- 
 --- a/src/dxgiSwapChain.cpp
 +++ b/src/dxgiSwapChain.cpp
 @@ -249,7 +249,12 @@
@@ -212,3 +198,16 @@
  
        // Check if the head is local and copy accordingly
        if (o->cfg->transportMethod == OUTMETHOD_LOCAL) {
+--- a/src/main.h
++++ b/src/main.h
+@@ -36,6 +36,10 @@
+ #define DLL __declspec(dllimport)
+ #endif // SOFTTHMAIN
+ 
++// SoftTH's private Direct3DCreate9Ex export is also used internally by the
++// D3D9/DXGI output helpers. Keep C linkage consistent with main.cpp.
++extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex** ptr);
++
+ extern "C" DLL configFile config; // Main configuration
+ extern bool emergencyRelease;
+ 
