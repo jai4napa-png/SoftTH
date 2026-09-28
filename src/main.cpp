@@ -479,12 +479,14 @@ BOOL APIENTRY DllMain(HINSTANCE hModule, DWORD reason, LPVOID lpReserved)
       break;
     }
 
-    // Notify mouse hook of thread changes
+    // Do not install a WH_GETMESSAGE hook on every thread created in the
+    // process. Modern graphics runtimes create many worker threads; hooking
+    // all of them is unnecessary and destabilizes legacy callback paths.
+    // The actual FSX device-window thread is hooked explicitly after device
+    // creation when multihead input remapping is required.
     case DLL_THREAD_ATTACH:
-      ihGlobal.newThread();
       break;
     case DLL_THREAD_DETACH:
-      ihGlobal.detachThread();
       break;
   }
   return TRUE;
