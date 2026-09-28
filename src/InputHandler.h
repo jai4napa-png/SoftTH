@@ -54,7 +54,7 @@ char* getMouseEventName(UINT event);
 
 class InputHandler {
 public:
-  InputHandler() {hWin = NULL;setHook();for(int i=0;i<MAX_KEYS;i++) keys[i]=false;};
+  InputHandler() {hWin = NULL;for(int i=0;i<MAX_KEYS;i++) keys[i]=false;};
   ~InputHandler() {releaseHook();};
 
   void hookRemoteThread(DWORD threadID);
