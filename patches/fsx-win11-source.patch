@@ -189,7 +189,7 @@
  /*********************/
  
 -// SoftTH NOTE: The following line commented out
--//HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
+-//extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
 +// SoftTH provides/uses this entry point internally. Modern SDK headers no
 +// longer supply the declaration through this local legacy d3d9 header.
 +HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
