@@ -11,10 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply FSX/Win11 source patch
-        shell: cmd
-        run: git apply patches\fsx-win11-source.patch
-
       - uses: microsoft/setup-msbuild@v2
       - uses: NuGet/setup-nuget@v2
 
