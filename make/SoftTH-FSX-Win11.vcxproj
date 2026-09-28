@@ -61,7 +61,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ModuleDefinitionFile>$(ProjectDir)dll_D3D9_x86.def</ModuleDefinitionFile>
       <AdditionalLibraryDirectories>$(ProjectDir)..\lib\distorm\win\x86;$(ProjectDir)..\lib\zlib\win\x86;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\release\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;d3d10_1.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>libcmt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <DataExecutionPrevention>true</DataExecutionPrevention>
@@ -93,7 +93,7 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <ModuleDefinitionFile>$(ProjectDir)dll_D3D9_x86.def</ModuleDefinitionFile>
       <AdditionalLibraryDirectories>$(ProjectDir)..\lib\distorm\win\x86;$(ProjectDir)..\lib\zlib\win\x86;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\release\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;d3d10_1.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>libcmt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <RandomizedBaseAddress>true</RandomizedBaseAddress>
       <DataExecutionPrevention>true</DataExecutionPrevention>
