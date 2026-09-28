@@ -70,7 +70,7 @@ outDirect3D11::outDirect3D11(int devID, int w, int h, int transX, int transY, HW
 
   // Get monitor info with D3D9
   IDirect3D9Ex *d3d9;
-  D3DCALL( Direct3DCreate9Ex(-D3D_SDK_VERSION, &d3d9) );
+  D3DCALL( dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3d9) );
   mInfo.cbSize = sizeof(MONITORINFO);
   mId = d3d9->GetAdapterMonitor(devID);
   GetMonitorInfo(mId, &mInfo);
