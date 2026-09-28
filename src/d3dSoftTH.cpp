@@ -149,15 +149,17 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
     };
 
     char name[256];
-    DWORD pid;
+    DWORD pid = 0;
     GetWindowText(hFocusWindow, name, 256);
-    GetWindowThreadProcessId(hFocusWindow, &pid);
-    dbg("Focus window 0x%08X <%s>, thread 0x%08X", hFocusWindow, name, pid);
-    ihGlobal.hookRemoteThread(pid);
+    DWORD focusTid = GetWindowThreadProcessId(hFocusWindow, &pid);
+    dbg("Focus window 0x%08X <%s>, thread 0x%08X", hFocusWindow, name, focusTid);
+    if(focusTid)
+      ihGlobal.hookRemoteThread(focusTid);
     GetWindowText(pp->hDeviceWindow, name, 256);
-    GetWindowThreadProcessId(pp->hDeviceWindow, &pid);
-    dbg("Device window 0x%08X <%s>, thread 0x%08X", pp->hDeviceWindow, name, pid);
-    ihGlobal.hookRemoteThread(pid);
+    DWORD deviceTid = GetWindowThreadProcessId(pp->hDeviceWindow, &pid);
+    dbg("Device window 0x%08X <%s>, thread 0x%08X", pp->hDeviceWindow, name, deviceTid);
+    if(deviceTid)
+      ihGlobal.hookRemoteThread(deviceTid);
 
     RECT r;
     GetWindowRect(hFocusWindow, &r);
@@ -190,15 +192,17 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
     pp->FullScreen_RefreshRateInHz = matchRefresh(pp);
 
     char name[256];
-    DWORD pid;
+    DWORD pid = 0;
     GetWindowText(hFocusWindow, name, 256);
-    GetWindowThreadProcessId(hFocusWindow, &pid);
-    dbg("Focus window 0x%08X <%s>, thread 0x%08X", hFocusWindow, name, pid);
-    ihGlobal.hookRemoteThread(pid);
+    DWORD focusTid = GetWindowThreadProcessId(hFocusWindow, &pid);
+    dbg("Focus window 0x%08X <%s>, thread 0x%08X", hFocusWindow, name, focusTid);
+    if(focusTid)
+      ihGlobal.hookRemoteThread(focusTid);
     GetWindowText(pp->hDeviceWindow, name, 256);
-    GetWindowThreadProcessId(pp->hDeviceWindow, &pid);
-    dbg("Device window 0x%08X <%s>, thread 0x%08X", pp->hDeviceWindow, name, pid);
-    ihGlobal.hookRemoteThread(pid);
+    DWORD deviceTid = GetWindowThreadProcessId(pp->hDeviceWindow, &pid);
+    dbg("Device window 0x%08X <%s>, thread 0x%08X", pp->hDeviceWindow, name, deviceTid);
+    if(deviceTid)
+      ihGlobal.hookRemoteThread(deviceTid);
 
     RECT r;
     GetWindowRect(hFocusWindow, &r);
