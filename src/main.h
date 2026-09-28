@@ -37,6 +37,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define DLL __declspec(dllimport)
 #endif // SOFTTHMAIN
 
+struct IDirect3D9Ex;
+extern HRESULT (WINAPI*dllDirect3DCreate9Ex)(UINT SDKVersion, IDirect3D9Ex**);
+
 extern "C" DLL configFile config; // Main configuration
 extern bool emergencyRelease;
 
