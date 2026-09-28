@@ -206,6 +206,7 @@
  
 +// SoftTH's private Direct3DCreate9Ex export is also used internally by the
 +// D3D9/DXGI output helpers. Keep C linkage consistent with main.cpp.
++struct IDirect3D9Ex;
 +extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex** ptr);
 +
  extern "C" DLL configFile config; // Main configuration
