@@ -33,11 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //#define WINDOW_FLAGS    WS_EX_TOPMOST
 #define WINDOW_FLAGS    NULL
 
-// Added by CJR for SDK 8.1 - 9 Aug 2015
-volatile int SoftTHActive = 0; // >0 if SoftTH is currently active and resolution is overridden
-bool *SoftTHActiveSquashed = NULL; // Pointer to latest SoftTH device squash variable (TODO: horrible)
-
-
+// SoftTHActive and SoftTHActiveSquashed are defined in d3dSoftTH.cpp.
 // Show message box
 extern "C" __declspec(dllexport) void ShowMessage(char *first, ...) {
   va_list     argptr;
