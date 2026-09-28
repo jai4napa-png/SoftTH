@@ -182,3 +182,33 @@
 +  #define SOFTTHDEVID "SOFTTH\\301\\X86\\FSXWIN11"
 +  #define SOFTTHDEVIDW L"SOFTTH\\301\\X86\\FSXWIN11"
  #endif
+--- a/src/d3d9.h
++++ b/src/d3d9.h
+@@ -2031,8 +2031,9 @@
+ /* D3D9Ex interfaces
+ /*********************/
+ 
+-// SoftTH NOTE: The following line commented out
+-//HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
++// SoftTH provides/uses this entry point internally. Modern SDK headers no
++// longer supply the declaration through this local legacy d3d9 header.
++HRESULT WINAPI Direct3DCreate9Ex(UINT SDKVersion, IDirect3D9Ex**);
+ 
+ 
+ 
+--- a/src/dxgiSwapChain.cpp
++++ b/src/dxgiSwapChain.cpp
+@@ -249,7 +249,12 @@
+ 
+       o->localSurf->GetDesc(&dt);
+       dbg("dxgi_sc: Secondary Head %d : %dx%d ms%d %s", i+1, dt.Width, dt.Height, dt.SampleDesc.Count, getFormatDXGI(dt.Format));
+-      sb = {o->cfg->sourceRect.left, o->cfg->sourceRect.top, 0, o->cfg->sourceRect.right, o->cfg->sourceRect.bottom, 1};
++      sb = {
++        (UINT)o->cfg->sourceRect.left,
++        (UINT)o->cfg->sourceRect.top,
++        0,
++        (UINT)o->cfg->sourceRect.right,
++        (UINT)o->cfg->sourceRect.bottom, 1};
+ 
+       // Check if the head is local and copy accordingly
+       if (o->cfg->transportMethod == OUTMETHOD_LOCAL) {
