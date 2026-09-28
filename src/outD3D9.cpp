@@ -110,7 +110,7 @@ outDirect3D9::outDirect3D9(int devID, int wantMethod, int w, int h, int transX, 
     default: bbFormat = D3DFMT_X8R8G8B8; break;
   }
 
-  D3DCALL( Direct3DCreate9Ex(-D3D_SDK_VERSION, &d3d) );
+  D3DCALL( dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3d) );
 
   //int wflags = WS_EX_TOPMOST;
   int wflags = NULL;
