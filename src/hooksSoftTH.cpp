@@ -205,6 +205,10 @@ LONG WINAPI NewChangeDisplaySettingsExA(LPCTSTR lpszDeviceName, LPDEVMODE lpDevM
 
 static void pointToVirtual(POINT *point)
 {
+  // No coordinate remapping is required when there are no additional heads.
+  if(config.getNumAdditionalHeads() == 0)
+    return;
+
   dbgf("hooksSoftTH: pointToVirtual");
   HWND w = WindowFromPoint(*point);
 
@@ -311,7 +315,7 @@ BOOL WINAPI NewSetPhysicalCursorPos(int x, int y)
 	typedef BOOL (WINAPI*OCALL)(int, int);
 	const static OCALL origFunc = (OCALL) getHookCall("SetPhysicalCursorPos");
 
-  if(!SoftTHActive)
+  if(!SoftTHActive || config.getNumAdditionalHeads() == 0)
     return origFunc(x, y);
 
   SOURCE_MODULE(srcMod);
@@ -334,7 +338,7 @@ BOOL WINAPI NewSetCursorPos(int x, int y)
 	typedef BOOL (WINAPI*OCALL)(int, int);
 	const static OCALL origFunc = (OCALL) getHookCall("SetCursorPos");
 
-  if(!SoftTHActive)
+  if(!SoftTHActive || config.getNumAdditionalHeads() == 0)
     return origFunc(x, y);
 
   SOURCE_MODULE(srcMod);
@@ -368,7 +372,7 @@ BOOL WINAPI NewClientToScreen(HWND hWnd, LPPOINT lpPoint)
     dbg_input("ClientToScreen: %dx%d -> %dx%d (%s", x, y, lpPoint->x, lpPoint->y, !ret?"FAIL!":"ok");
   }
 
-  return 1;
+  return ret;
 }
 
 BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
@@ -388,7 +392,7 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
     dbg_input("ScreenToClient: %dx%d -> %dx%d (%s)", x, y, lpPoint->x, lpPoint->y, !ret?"FAIL!":"ok");
   }
 
-  return 1;
+  return ret;
 }
 
 BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
@@ -707,11 +711,13 @@ BOOL WINAPI NewEnumDisplayDevicesW(LPCWSTR lpDevice, DWORD iDevNum, PDISPLAY_DEV
       WCHAR             dkey[128] = L"";
 
 
-      *lpDisplayDevice->DeviceName = *dname;
-      *lpDisplayDevice->DeviceString = *dstr;
+      ZeroMemory(lpDisplayDevice, sizeof(DISPLAY_DEVICEW));
+      lpDisplayDevice->cb = sizeof(DISPLAY_DEVICEW);
+      lstrcpynW(lpDisplayDevice->DeviceName, dname, 32);
+      lstrcpynW(lpDisplayDevice->DeviceString, dstr, 128);
       lpDisplayDevice->StateFlags = DISPLAY_DEVICE_ACTIVE;// | DISPLAY_DEVICE_ATTACHED_TO_DESKTOP;
-      *lpDisplayDevice->DeviceID = *did;
-      *lpDisplayDevice->DeviceKey = *dkey;
+      lstrcpynW(lpDisplayDevice->DeviceID, did, 128);
+      lstrcpynW(lpDisplayDevice->DeviceKey, dkey, 128);
 
       //memcpy(&lpDisplayDevice, &dd, sizeof(DISPLAY_DEVICE));
 
@@ -748,11 +754,13 @@ BOOL WINAPI NewEnumDisplayDevicesA(LPCTSTR lpDevice, DWORD iDevNum, PDISPLAY_DEV
       CHAR             dkey[128] = "";
 
 
-      *lpDisplayDevice->DeviceName = *dname;
-      *lpDisplayDevice->DeviceString = *dstr;
+      ZeroMemory(lpDisplayDevice, sizeof(DISPLAY_DEVICEA));
+      lpDisplayDevice->cb = sizeof(DISPLAY_DEVICEA);
+      lstrcpynA(lpDisplayDevice->DeviceName, dname, 32);
+      lstrcpynA(lpDisplayDevice->DeviceString, dstr, 128);
       lpDisplayDevice->StateFlags = DISPLAY_DEVICE_ACTIVE;// | DISPLAY_DEVICE_ATTACHED_TO_DESKTOP;
-      *lpDisplayDevice->DeviceID = *did;
-      *lpDisplayDevice->DeviceKey = *dkey;
+      lstrcpynA(lpDisplayDevice->DeviceID, did, 128);
+      lstrcpynA(lpDisplayDevice->DeviceKey, dkey, 128);
 
       //memcpy(&lpDisplayDevice, &dd, sizeof(DISPLAY_DEVICE));
 
@@ -861,6 +869,21 @@ static bool isHooked(HMODULE mod)
   for(int i=0;i<curNumModules;i++)
     if(noHookModules[i] == mod)
       return false;
+
+  // Never virtualize USER32/display APIs for Windows system components or
+  // display-driver modules. SoftTH only needs to present its virtual topology
+  // to the application and its own modules.
+  if(mod) {
+    char fn[MAX_PATH] = {0};
+    if(GetModuleFileNameA(mod, fn, MAX_PATH)) {
+      CharLowerBuffA(fn, (DWORD)strlen(fn));
+      if(strstr(fn, "\\windows\\system32\\") ||
+         strstr(fn, "\\windows\\syswow64\\") ||
+         strstr(fn, "\\driverstore\\"))
+        return false;
+    }
+  }
+
   return true;
 }
 
