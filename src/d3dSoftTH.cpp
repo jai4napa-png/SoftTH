@@ -595,10 +595,16 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
       D3DSCANLINEORDERING_PROGRESSIVE
     };
 
-    HRESULT ret = dev->ResetEx(pp, fullscreen?&mode:NULL);
+    // Keep classic D3D9 applications on classic Reset() semantics.
+    HRESULT ret;
+    if(isEx)
+      ret = dev->ResetEx(pp, fullscreen?&mode:NULL);
+    else
+      ret = dev->Reset(pp);
+
     if(ret != D3D_OK)
       dbg("Reset: FAILED: %s", getD3DError(ret));
-    else {
+    else if(isEx) {
       HRESULT r = dev->CheckDeviceState(pp->hDeviceWindow);
       if(r != D3D_OK) {
         dbg("Reset: DeviceState: %s!", getD3DError(r));
@@ -794,7 +800,11 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
 
   if(!newbb || notactive)
   {
-    HRESULT ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+    HRESULT ret;
+    if(isEx || dwFlags != 0)
+      ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+    else
+      ret = dev->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
     dbgf("IDirect3DDevice9SoftTH::Present: notactive present result: %s", getD3DError(ret));
     if(ret == S_PRESENT_OCCLUDED || ret == S_PRESENT_MODE_CHANGED)
       ret = D3D_OK; // TODO: do this only if not an Ex device
@@ -1083,13 +1093,17 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
   tb = GetTickCount();
   drawOverlay();
   dbgf("IDirect3DDevice9SoftTH::Present: present primary head");
-  HRESULT ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+  HRESULT ret;
+  if(isEx || dwFlags != 0)
+    ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+  else
+    ret = dev->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
   if(ret != D3D_OK) {
     dbg("Present failed: %s", getD3DError(ret));
     if(ret == S_PRESENT_OCCLUDED || ret == S_PRESENT_MODE_CHANGED)
       ret = D3D_OK; // TODO: do this only if not an Ex device
   }
-  timeWarn(tb, 250, "Primary head PresentEx");
+  timeWarn(tb, 250, isEx?"Primary head PresentEx":"Primary head Present");
 
   // Present secondary heads
   tb = GetTickCount();
