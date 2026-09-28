@@ -1,0 +1,184 @@
+--- a/src/d3d.h
++++ b/src/d3d.h
+@@ -29,9 +29,11 @@
+ #undef nil
+ #undef dbgf
+ 
+-// USE_D3DEX Disabled: Do not use Direct3D9Ex
+-// For debug only, SoftTH device wont work with it
+-//#define USE_D3DEX 1 // Removed by CJR for SDK 8.1 - 9 Aug 2015
++// SoftTH requires an internal Direct3D9Ex device for shared surfaces and its
++// multihead transport path.  The application may still request classic D3D9;
++// isEx tracks the API requested by the application so Present/Reset semantics
++// can be preserved while the backend uses D3D9Ex.
++#define USE_D3DEX 1 // Restored for Windows 10/11 + FSX compatibility
+ 
+ // Debug settings for non-ex device (enable various Ex device emulation features)
+ #define MANAGE_DEBUG_IB         0
+--- a/src/d3dSoftTH.cpp
++++ b/src/d3dSoftTH.cpp
+@@ -595,10 +595,18 @@
+       D3DSCANLINEORDERING_PROGRESSIVE
+     };
+ 
+-    HRESULT ret = dev->ResetEx(pp, fullscreen?&mode:NULL);
++    // Preserve the API semantics requested by the application. SoftTH uses an
++    // internal D3D9Ex device, but a classic D3D9 application such as FSX should
++    // not be silently upgraded to ResetEx()/CheckDeviceState().
++    HRESULT ret;
++    if(isEx)
++      ret = dev->ResetEx(pp, fullscreen?&mode:NULL);
++    else
++      ret = dev->Reset(pp);
++
+     if(ret != D3D_OK)
+       dbg("Reset: FAILED: %s", getD3DError(ret));
+-    else {
++    else if(isEx) {
+       HRESULT r = dev->CheckDeviceState(pp->hDeviceWindow);
+       if(r != D3D_OK) {
+         dbg("Reset: DeviceState: %s!", getD3DError(r));
+@@ -794,7 +802,14 @@
+ 
+   if(!newbb || notactive)
+   {
+-    HRESULT ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
++    // Preserve classic IDirect3DDevice9::Present semantics. PresentEx is used
++    // only when the application actually requested an Ex device (or supplied
++    // Ex-only present flags).
++    HRESULT ret;
++    if(isEx || dwFlags != 0)
++      ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
++    else
++      ret = dev->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+     dbgf("IDirect3DDevice9SoftTH::Present: notactive present result: %s", getD3DError(ret));
+     if(ret == S_PRESENT_OCCLUDED || ret == S_PRESENT_MODE_CHANGED)
+       ret = D3D_OK; // TODO: do this only if not an Ex device
+@@ -1083,13 +1098,17 @@
+   tb = GetTickCount();
+   drawOverlay();
+   dbgf("IDirect3DDevice9SoftTH::Present: present primary head");
+-  HRESULT ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
++  HRESULT ret;
++  if(isEx || dwFlags != 0)
++    ret = dev->PresentEx(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
++  else
++    ret = dev->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+   if(ret != D3D_OK) {
+     dbg("Present failed: %s", getD3DError(ret));
+     if(ret == S_PRESENT_OCCLUDED || ret == S_PRESENT_MODE_CHANGED)
+       ret = D3D_OK; // TODO: do this only if not an Ex device
+   }
+-  timeWarn(tb, 250, "Primary head PresentEx");
++  timeWarn(tb, 250, isEx?"Primary head PresentEx":"Primary head Present");
+ 
+   // Present secondary heads
+   tb = GetTickCount();
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -511,9 +511,14 @@
+ #endif
+ 
+   #if USE_D3DEX
+-  // Create D3D9Ex interface
+-  IDirect3D9Ex *d3dhReal;
+-  dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
++  // Create the internal D3D9Ex interface used by SoftTH. The application still
++  // receives the interface shape it requested via IDirect3D9New.
++  IDirect3D9Ex *d3dhReal = NULL;
++  HRESULT createExResult = dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
++  if(FAILED(createExResult) || !d3dhReal) {
++    dbg("Direct3DCreate9: Direct3DCreate9Ex backend failed: 0x%08X", createExResult);
++    return NULL;
++  }
+   #else
+   IDirect3D9 *d3dhReal;
+   d3dhReal = dllDirect3DCreate9(D3D_SDK_VERSION);
+@@ -530,11 +535,16 @@
+     return dllDirect3DCreate9Ex(D3D_SDK_VERSION, ptr);
+   }
+   dbg("Direct3DCreate9Ex");
+-  IDirect3D9Ex *d3dhReal;
++  IDirect3D9Ex *d3dhReal = NULL;
+ 
+   #if USE_D3DEX
+     // Create D3D9Ex interface
+-    dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
++    HRESULT createExResult = dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
++    if(FAILED(createExResult) || !d3dhReal) {
++      dbg("Direct3DCreate9Ex: backend creation failed: 0x%08X", createExResult);
++      if(ptr) *ptr = NULL;
++      return FAILED(createExResult)?createExResult:E_FAIL;
++    }
+   #else
+     dbg("Not so.");
+   #endif
+--- a/src/resource.rc
++++ b/src/resource.rc
+@@ -7,7 +7,7 @@
+ //
+ // Generated from the TEXTINCLUDE 2 resource.
+ //
+-#include "afxres.h"
++#include <windows.h>
+ 
+ /////////////////////////////////////////////////////////////////////////////
+ #undef APSTUDIO_READONLY_SYMBOLS
+@@ -34,7 +34,7 @@
+ 
+ 2 TEXTINCLUDE
+ BEGIN
+-    "#include ""afxres.h""\r\n"
++    "#include <windows.h>\r\n"
+     "\0"
+ END
+ 
+@@ -53,8 +53,8 @@
+ //
+ 
+ VS_VERSION_INFO VERSIONINFO
+- FILEVERSION 3,0,0,0
+- PRODUCTVERSION 3,0,0,0
++ FILEVERSION 3,0,1,0
++ PRODUCTVERSION 3,0,1,0
+  FILEFLAGSMASK 0x17L
+ #ifdef _DEBUG
+  FILEFLAGS 0x1L
+@@ -71,11 +71,11 @@
+         BEGIN
+             VALUE "CompanyName", "SoftTH, http://www.softth.net"
+             VALUE "FileDescription", "SoftTH"
+-            VALUE "FileVersion", "3.0.0.0"
++            VALUE "FileVersion", "3.0.1.0"
+             VALUE "InternalName", "SoftTH"
+             VALUE "OriginalFilename", "d3d9.dll, dxgi.dll, d3d10.dll, d3d11.dll"
+             VALUE "ProductName", "SoftTH by born2beflyin"
+-            VALUE "ProductVersion", "3.0.0.0"
++            VALUE "ProductVersion", "3.0.1.0"
+         END
+     END
+     BLOCK "VarFileInfo"
+--- a/src/version.h
++++ b/src/version.h
+@@ -18,13 +18,13 @@
+ */
+ 
+ #ifdef _WIN64
+-  #define SOFTTH_VERSION "SoftTH v3.00 x64 alpha by born2beflyin"
+-  #define SOFTTH_VERSIONW L"SoftTH v3.00 x64 alpha by born2beflyin"
+-  #define SOFTTHDEVID "SOFTTH\\300\\X64\\BORN2BEFLYIN"
+-  #define SOFTTHDEVIDW L"SOFTTH\\300\\X64\\BORN2BEFLYIN"
++  #define SOFTTH_VERSION "SoftTH v3.01 x64 FSX-Win11 test"
++  #define SOFTTH_VERSIONW L"SoftTH v3.01 x64 FSX-Win11 test"
++  #define SOFTTHDEVID "SOFTTH\\301\\X64\\FSXWIN11"
++  #define SOFTTHDEVIDW L"SOFTTH\\301\\X64\\FSXWIN11"
+ #else
+-  #define SOFTTH_VERSION "SoftTH v3.00 x86 alpha by born2beflyin"
+-  #define SOFTTH_VERSIONW L"SoftTH v3.00 x86 alpha by born2beflyin"
+-  #define SOFTTHDEVID "SOFTTH\\300\\X86\\BORN2BEFLYIN"
+-  #define SOFTTHDEVIDW L"SOFTTH\\300\\X86\\BORN2BEFLYIN"
++  #define SOFTTH_VERSION "SoftTH v3.01 x86 FSX-Win11 test"
++  #define SOFTTH_VERSIONW L"SoftTH v3.01 x86 FSX-Win11 test"
++  #define SOFTTHDEVID "SOFTTH\\301\\X86\\FSXWIN11"
++  #define SOFTTHDEVIDW L"SOFTTH\\301\\X86\\FSXWIN11"
+ #endif
