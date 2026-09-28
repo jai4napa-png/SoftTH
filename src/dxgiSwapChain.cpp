@@ -249,7 +249,7 @@ HRESULT IDXGISwapChainNew::Present(UINT SyncInterval,UINT Flags)
 
       o->localSurf->GetDesc(&dt);
       dbg("dxgi_sc: Secondary Head %d : %dx%d ms%d %s", i+1, dt.Width, dt.Height, dt.SampleDesc.Count, getFormatDXGI(dt.Format));
-      sb = {o->cfg->sourceRect.left, o->cfg->sourceRect.top, 0, o->cfg->sourceRect.right, o->cfg->sourceRect.bottom, 1};
+      sb = {(UINT)o->cfg->sourceRect.left, (UINT)o->cfg->sourceRect.top, 0, (UINT)o->cfg->sourceRect.right, (UINT)o->cfg->sourceRect.bottom, 1};
 
       // Check if the head is local and copy accordingly
       if (o->cfg->transportMethod == OUTMETHOD_LOCAL) {
