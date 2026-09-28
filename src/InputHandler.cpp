@@ -220,7 +220,12 @@ void InputHandler::setHook(DWORD tid)
     i++;
   }
 
-  threadHookMsg = SetWindowsHookEx(WH_GETMESSAGE, (HOOKPROC) GetMsgProc, 0, tid);
+  HHOOK newHook = SetWindowsHookEx(WH_GETMESSAGE, (HOOKPROC) GetMsgProc, 0, tid);
+  if(!newHook) {
+    dbg("InputHandler: FAILED to install mouse hook on thread 0x%08X (error %lu)", tid, GetLastError());
+    return;
+  }
+  threadHookMsg = newHook;
   hookedThreads.push_back(tid);
   dbg("InputHandler: Installed mouse hook 0x%08X on thread 0x%08X (%d hooks)", threadHookMsg, tid, hookedThreads.size());
 }
