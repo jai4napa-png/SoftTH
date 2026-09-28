@@ -145,18 +145,20 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
         break;
       }
 
-      POINT vp;
+      POINT vp = {msg->pt.x, msg->pt.y};
+      bool mapped = false;
       HWND winCursor = WindowFromPoint(msg->pt);
       if(winCursor != win) {
         // Drag event is going from primary monitor to secondary
         POINT op = {msg->pt.x, msg->pt.y};
         ScreenToClient(winCursor, &op);
-        if(!inputMapClientToVirtual(winCursor, &op, &vp)) {
-          // Outside SoftTH window - attempt to discard this message
-          msg->message = WM_NULL;
-        }
+        mapped = inputMapClientToVirtual(winCursor, &op, &vp);
       } else {
-        inputMapClientToVirtual(win, &msg->pt, &vp);
+        mapped = inputMapClientToVirtual(win, &msg->pt, &vp);
+      }
+      if(!mapped) {
+        msg->message = WM_NULL;
+        break;
       }
       dbg_input("PrimaryWindow: %s: %dx%d -> %dx%d (wparam: 0x%08X)", getMouseEventName(wmsg), msg->pt.x, msg->pt.y, vp.x, vp.y, msg->wParam);
 
