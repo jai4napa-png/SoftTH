@@ -29,9 +29,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #undef nil
 #undef dbgf
 
-// USE_D3DEX Disabled: Do not use Direct3D9Ex
-// For debug only, SoftTH device wont work with it
-//#define USE_D3DEX 1 // Removed by CJR for SDK 8.1 - 9 Aug 2015
+// SoftTH requires an internal Direct3D9Ex device for shared surfaces and its
+// multihead transport path. The application may still request classic D3D9;
+// isEx preserves the API semantics requested by the application.
+#define USE_D3DEX 1 // Restored for Windows 10/11 + FSX compatibility
 
 // Debug settings for non-ex device (enable various Ex device emulation features)
 #define MANAGE_DEBUG_IB         0
