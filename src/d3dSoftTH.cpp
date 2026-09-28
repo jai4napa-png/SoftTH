@@ -580,11 +580,17 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
     GetWindowRect(hFocusWindow, &r);
     dbg("Device window  pre-reset: %s", strRect(&r));
 
+    // D3D9 requires explicit render targets, depth surfaces and other
+    // default-pool resources to be released before Reset().
+    if(newbb) {
+      dbg("Reset: releasing SoftTH buffers before device reset");
+      destroyBuffers();
+    }
+
     HRESULT ret = dev->Reset(&newpp);
+    dbg("Reset: underlying device returned %s", getD3DError(ret));
     if(ret == D3D_OK)
     {
-      if(newbb)
-        destroyBuffers();
       pp->BackBufferFormat = newpp.BackBufferFormat;
       createBuffers();
 
