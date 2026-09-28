@@ -511,9 +511,13 @@ extern "C" _declspec(dllexport) IDirect3D9 * __stdcall Direct3DCreate9(UINT SDKV
 #endif
 
   #if USE_D3DEX
-  // Create D3D9Ex interface
-  IDirect3D9Ex *d3dhReal;
-  dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
+  // Create the internal D3D9Ex interface used by SoftTH.
+  IDirect3D9Ex *d3dhReal = NULL;
+  HRESULT createExResult = dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
+  if(FAILED(createExResult) || !d3dhReal) {
+    dbg("Direct3DCreate9: Direct3DCreate9Ex backend failed: 0x%08X", createExResult);
+    return NULL;
+  }
   #else
   IDirect3D9 *d3dhReal;
   d3dhReal = dllDirect3DCreate9(D3D_SDK_VERSION);
@@ -530,11 +534,16 @@ extern "C" _declspec(dllexport) HRESULT __stdcall Direct3DCreate9Ex(UINT SDKVers
     return dllDirect3DCreate9Ex(D3D_SDK_VERSION, ptr);
   }
   dbg("Direct3DCreate9Ex");
-  IDirect3D9Ex *d3dhReal;
+  IDirect3D9Ex *d3dhReal = NULL;
 
   #if USE_D3DEX
     // Create D3D9Ex interface
-    dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
+    HRESULT createExResult = dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3dhReal);
+    if(FAILED(createExResult) || !d3dhReal) {
+      dbg("Direct3DCreate9Ex: backend creation failed: 0x%08X", createExResult);
+      if(ptr) *ptr = NULL;
+      return FAILED(createExResult)?createExResult:E_FAIL;
+    }
   #else
     dbg("Not so.");
   #endif
