@@ -434,18 +434,34 @@ void IDirect3DDevice9SoftTH::destroyBuffers()
     SAFE_RELEASE_LAST(fontWide);
   )
 
-/*
-  IDirect3DSurface9 *cd;
-  dev->GetDepthStencilSurface(&cd);
-  if(cd == newdepth)
+  // Explicitly unbind SoftTH-owned default-pool surfaces before releasing
+  // them. Direct3D keeps references to bound render/depth surfaces.
+  IDirect3DSurface9 *cd = NULL;
+  if(SUCCEEDED(dev->GetDepthStencilSurface(&cd)) && cd)
   {
-    dbg("depth was still set");
-    dev->SetDepthStencilSurface(NULL);
+    if(cd == newdepth)
+    {
+      dbg("SoftTH: Unbinding SoftTH depth surface before release");
+      dev->SetDepthStencilSurface(NULL);
+    }
+    cd->Release();
   }
-  else
-    if(cd)
-      cd->Release();
-*/
+
+  IDirect3DSurface9 *crt = NULL;
+  if(SUCCEEDED(dev->GetRenderTarget(0, &crt)) && crt)
+  {
+    if(crt == newbb)
+    {
+      IDirect3DSurface9 *nativeBB = NULL;
+      if(SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &nativeBB)) && nativeBB)
+      {
+        dbg("SoftTH: Restoring native backbuffer before release");
+        dev->SetRenderTarget(0, nativeBB);
+        nativeBB->Release();
+      }
+    }
+    crt->Release();
+  }
 
   SAFE_RELEASE_LAST(copybuf);
   SAFE_RELEASE_LAST(squeryA);
