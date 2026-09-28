@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{6A14B841-5F46-4F32-8E2E-301F5BDF3011}</ProjectGuid>
+    <RootNamespace>SoftTHFSXWin11</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)..\bin\fsx-win11\x86\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)..\obj\fsx-win11\x86\$(Configuration)\</IntDir>
+    <TargetName>d3d9</TargetName>
+    <TargetExt>.dll</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PreprocessorDefinitions>SOFTTHMAIN;_CRT_SECURE_NO_WARNINGS;WIN32;_DEBUG;_WINDOWS;_USRDLL;ZLIB_WINAPI;_WINDLL;xUSE_NEW_CUDA;xUSE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\src;$(ProjectDir)..\include;$(ProjectDir)..\include\distorm;$(ProjectDir)..\include\zlib;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ConformanceMode>false</ConformanceMode>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <DisableSpecificWarnings>4996;4244;4267;4311;4312;4302;4477;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ModuleDefinitionFile>$(ProjectDir)dll_D3D9_x86.def</ModuleDefinitionFile>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\lib\distorm\win\x86;$(ProjectDir)..\lib\zlib\win\x86;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\release\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libcmt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <PreprocessorDefinitions>SOFTTHMAIN;_CRT_SECURE_NO_WARNINGS;WIN32;NDEBUG;_WINDOWS;_USRDLL;ZLIB_WINAPI;_WINDLL;xUSE_NEW_CUDA;xUSE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\src;$(ProjectDir)..\include;$(ProjectDir)..\include\distorm;$(ProjectDir)..\include\zlib;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ConformanceMode>false</ConformanceMode>
+      <LanguageStandard>stdcpp14</LanguageStandard>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <DisableSpecificWarnings>4996;4244;4267;4311;4312;4302;4477;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ResourceCompile><AdditionalIncludeDirectories>$(ProjectDir)..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <ModuleDefinitionFile>$(ProjectDir)dll_D3D9_x86.def</ModuleDefinitionFile>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\lib\distorm\win\x86;$(ProjectDir)..\lib\zlib\win\x86;$(ProjectDir)..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\release\lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>zlibstat.lib;distorm.lib;d3dx9.lib;D3DX10.lib;Dwmapi.lib;Winmm.lib;d3d9.lib;DXGUID.lib;d3d10.lib;DXGI.lib;Advapi32.lib;Gdi32.lib;User32.lib;Shell32.lib;Kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libcmt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <RandomizedBaseAddress>true</RandomizedBaseAddress>
+      <DataExecutionPrevention>true</DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\InputHandler.cpp" />
+    <ClCompile Include="..\src\configFile.cpp" />
+    <ClCompile Include="..\src\cudaTasks.cpp" />
+    <ClCompile Include="..\src\cudaif.cpp" />
+    <ClCompile Include="..\src\cudainterface.cpp" />
+    <ClCompile Include="..\src\d3d.cpp" />
+    <ClCompile Include="..\src\d3dDrawing.cpp" />
+    <ClCompile Include="..\src\d3dSoftTH.cpp" />
+    <ClCompile Include="..\src\d3dbuffer.cpp" />
+    <ClCompile Include="..\src\d3dtexture.cpp" />
+    <ClCompile Include="..\src\dxgiAdapterOutput.cpp" />
+    <ClCompile Include="..\src\dxgiFactory.cpp" />
+    <ClCompile Include="..\src\dxgiSwapChain.cpp" />
+    <ClCompile Include="..\src\globalHooker.cpp" />
+    <ClCompile Include="..\src\helper.cpp" />
+    <ClCompile Include="..\src\hooksSoftTH.cpp" />
+    <ClCompile Include="..\src\main.cpp" />
+    <ClCompile Include="..\src\outD3D10.cpp" />
+    <ClCompile Include="..\src\outD3D11.cpp" />
+    <ClCompile Include="..\src\outD3D9.cpp" />
+    <ClCompile Include="..\src\overlay_interface.cpp" />
+    <ClCompile Include="..\src\shCopy.cpp" />
+    <ClCompile Include="..\src\win32.cpp" />
+    <ClCompile Include="..\src\win32hooks.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\InputHandler.h" />
+    <ClInclude Include="..\src\configFile.h" />
+    <ClInclude Include="..\src\cudaTasks.h" />
+    <ClInclude Include="..\src\cudaif.hpp" />
+    <ClInclude Include="..\src\cudainterface.h" />
+    <ClInclude Include="..\src\d3d.h" />
+    <ClInclude Include="..\src\d3d9.h" />
+    <ClInclude Include="..\src\d3dDrawing.h" />
+    <ClInclude Include="..\src\d3dSoftTH.h" />
+    <ClInclude Include="..\src\d3dbuffer.h" />
+    <ClInclude Include="..\src\d3dtexture.h" />
+    <ClInclude Include="..\src\dxgiAdapterOutput.h" />
+    <ClInclude Include="..\src\dxgiFactory.h" />
+    <ClInclude Include="..\src\dxgiSwapChain.h" />
+    <ClInclude Include="..\src\globalHooker.h" />
+    <ClInclude Include="..\src\helper.h" />
+    <ClInclude Include="..\src\hooksSoftTH.h" />
+    <ClInclude Include="..\src\logodata.h" />
+    <ClInclude Include="..\src\main.h" />
+    <ClInclude Include="..\src\outD3D10.h" />
+    <ClInclude Include="..\src\outD3D11.h" />
+    <ClInclude Include="..\src\outD3D9.h" />
+    <ClInclude Include="..\src\overlay_interface.h" />
+    <ClInclude Include="..\src\shCopy.h" />
+    <ClInclude Include="..\src\version.h" />
+    <ClInclude Include="..\src\win32.h" />
+    <ClInclude Include="..\src\win32hooks.h" />
+    <ClInclude Include="..\src\resource.h" />
+  </ItemGroup>
+  <ItemGroup><ResourceCompile Include="..\src\resource.rc" /></ItemGroup>
+  <ItemGroup><None Include="packages.config" /><None Include="CUSTOM_MANIFEST_x86.manifest" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets" Condition="Exists('..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets')" />
+  </ImportGroup>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup><ErrorText>Missing Microsoft.DXSDK.D3DX NuGet package. Run NuGet restore first. Missing file: {0}</ErrorText></PropertyGroup>
+    <Error Condition="!Exists('..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.DXSDK.D3DX.9.29.952.8\build\native\Microsoft.DXSDK.D3DX.targets'))" />
+  </Target>
+</Project>
