@@ -157,7 +157,10 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
         mapped = inputMapClientToVirtual(win, &msg->pt, &vp);
       }
       if(!mapped) {
-        msg->message = WM_NULL;
+        // Do not eat FSX mouse input if a coordinate cannot be mapped. Passing
+        // the original message through is safer than converting it to WM_NULL
+        // and preserves cockpit interaction during transient window changes.
+        dbg_input("PrimaryWindow: mouse mapping failed; passing original event");
         break;
       }
       dbg_input("PrimaryWindow: %s: %dx%d -> %dx%d (wparam: 0x%08X)", getMouseEventName(wmsg), msg->pt.x, msg->pt.y, vp.x, vp.y, msg->wParam);
