@@ -1024,7 +1024,10 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
 
   static bool doStall = config.main.smoothing;
 
-  if(ihGlobal.key(VK_APPLICATION) || true) // TODO: remove this
+  // Legacy SoftTH debug hotkeys are dangerous in FSX because S/W/G/E/B are
+  // normal simulator keys. Only honor them while the Application/Menu key is
+  // explicitly held.
+  if(ihGlobal.key(VK_APPLICATION))
   {
     if(ihGlobal.keyAsync('S'))
       squash = !squash, printMessage("Squash: %s", squash?"ON":"OFF"), Sleep(50);
