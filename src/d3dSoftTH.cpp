@@ -88,14 +88,30 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
 
   SoftTHActiveSquashed = &squash;
 
-  /*
-  // Force fullscreen mode
-  if(true) {
-    if(pp->BackBufferFormat == D3DFMT_UNKNOWN)
-      pp->BackBufferFormat = D3DFMT_A8R8G8B8;
-    pp->Windowed = false;
+  // FSX starts by creating a windowed 1920x1080 device even when a SoftTH
+  // multihead layout is configured.  That keeps SoftTH on the single-head
+  // path until the user manually toggles fullscreen.  For this FSX-specific
+  // build, enter the configured virtual mode immediately whenever additional
+  // heads are present.
+  if(config.getNumAdditionalHeads() > 0 && pp->Windowed) {
+    dbg("FSX multihead: forcing startup fullscreen %dx%d",
+        config.main.renderResolution.x, config.main.renderResolution.y);
+
+    pp->Windowed = FALSE;
+    pp->BackBufferWidth = config.main.renderResolution.x;
+    pp->BackBufferHeight = config.main.renderResolution.y;
+    pp->FullScreen_RefreshRateInHz = 0;
+
+    // Fullscreen D3D9 cannot use D3DFMT_UNKNOWN.  Windowed applications often
+    // request UNKNOWN, so inherit the primary adapter's current display format.
+    if(pp->BackBufferFormat == D3DFMT_UNKNOWN) {
+      D3DDISPLAYMODE dm;
+      if(SUCCEEDED(d3d->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &dm)))
+        pp->BackBufferFormat = dm.Format;
+      else
+        pp->BackBufferFormat = D3DFMT_X8R8G8B8;
+    }
   }
-  */
 
   /*
   // Move window
