@@ -283,7 +283,11 @@ static bool getTrueClientRect(HWND win, RECT *r)
     else
       h = config.getHead(i);
     if(h->hwnd && h->hwnd == win) {
-      if(!isNullRect(&h->destRect)) {
+      // If no destination rectangle is configured, the visible client area is
+      // the whole physical head. The legacy code had this test backwards and
+      // returned a 0x0 rectangle for the normal "destRect not set" case,
+      // producing invalid mouse-coordinate scaling in FSX.
+      if(isNullRect(&h->destRect)) {
         r->left = r->top = 0;
         r->right = h->screenMode.x;
         r->bottom = h->screenMode.y;
