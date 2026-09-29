@@ -306,6 +306,17 @@ void IDirect3DDevice9SoftTH::createBuffers()
 
   // Init additional heads
   numDevs = config.getNumAdditionalHeads();
+
+  // FSX multihead must never enter SoftTH's legacy "squash" or "nocopy"
+  // debug modes. Squash deliberately scales the entire virtual render surface
+  // onto the primary monitor and disables every secondary head, which exactly
+  // mimics a broken multihead layout.
+  if(numDevs > 0) {
+    squash = false;
+    nocopy = false;
+    dbg("FSX multihead: forcing squash=OFF, nocopy=OFF");
+  }
+
   int logoStopTime = GetTickCount() + 4000;
 
   bool needIndirect = true;
