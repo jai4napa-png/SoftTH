@@ -1061,6 +1061,13 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
     fTimer = GetTickCount();
   }
 
+  // Do not allow legacy debug modes to collapse a live FSX multihead layout.
+  if(numDevs > 0 && (squash || nocopy)) {
+    dbg("FSX multihead: suppressing legacy squash/nocopy state");
+    squash = false;
+    nocopy = false;
+  }
+
   // Squash? Dump everything to primary head
   if(squash) {
     D3DCALL( dev->StretchRect(srcbuf, NULL, bb, NULL, D3DTEXF_LINEAR) );
