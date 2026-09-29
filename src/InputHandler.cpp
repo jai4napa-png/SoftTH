@@ -234,14 +234,10 @@ void InputHandler::setHook(DWORD tid)
 
 void InputHandler::releaseHook()
 {
-  if(!threadHookMsg)
-    return;
-
   DWORD tid = GetCurrentThreadId();
   dbg("InputHandler: Release mouse hook 0x%08X on thread 0x%08X (%d hooks)", threadHookMsg, tid, hookedThreads.size());
 
   UnhookWindowsHookEx(threadHookMsg);
-  threadHookMsg = NULL;
   hookedThreads.remove(tid);
 }
 
