@@ -257,6 +257,15 @@ void IDirect3DDevice9SoftTH::createBuffers()
   D3DCALL( dev->SetRenderTarget(0, newbb) );
   newbb->GetDesc(&newbbDesc);
 
+  // The real D3D device backbuffer is only the primary monitor size, so D3D9Ex
+  // initializes its default viewport to that physical size.  SoftTH renders to
+  // a larger virtual backbuffer; expand the viewport to the virtual dimensions
+  // immediately or vertically/horizontally offset heads can remain black.
+  D3DVIEWPORT9 virtualVp = {0, 0, (DWORD)wantedX, (DWORD)wantedY, 0.0f, 1.0f};
+  D3DCALL( dev->SetViewport(&virtualVp) );
+  dbg("SoftTH: Virtual viewport set to %dx%d (physical backbuffer %dx%d)",
+      wantedX, wantedY, bbDesc.Width, bbDesc.Height);
+
 #ifdef ENABLE_POSTPROCESS
   if(postprocess)
   {
