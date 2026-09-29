@@ -112,8 +112,11 @@ outDirect3D9::outDirect3D9(int devID, int wantMethod, int w, int h, int transX, 
 
   D3DCALL( dllDirect3DCreate9Ex(D3D_SDK_VERSION, &d3d) );
 
-  //int wflags = WS_EX_TOPMOST;
-  int wflags = NULL;
+  // Secondary SoftTH output windows must never become the foreground/active
+  // window. FSX uses foreground-sensitive keyboard, mouse and DirectInput
+  // acquisition; allowing an output window to activate can make the cockpit
+  // mouse and USB joystick stop responding and can trigger device resets.
+  int wflags = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
 
   mInfo.cbSize = sizeof(MONITORINFO);
   mId = d3d->GetAdapterMonitor(devID);
