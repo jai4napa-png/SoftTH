@@ -1250,6 +1250,46 @@ HRESULT IDirect3DDevice9SoftTH::GetDisplayMode(UINT iSwapChain, D3DDISPLAYMODE* 
   return ret;
 }
 
+// Keep a full-backbuffer viewport virtual while rendering to SoftTH's
+// virtual render target.  FSX can re-apply the physical 1920x1080 viewport
+// after device reset; map only that exact full physical viewport to the
+// virtual size.  Smaller/sub-view viewports and offscreen render targets pass
+// through unchanged.
+HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
+{
+  if(!pViewport || !newbb)
+    return dev->SetViewport(pViewport);
+
+  bool virtualTarget = false;
+  IDirect3DSurface9 *rt = NULL;
+  if(dev->GetRenderTarget(0, &rt) == D3D_OK && rt) {
+    virtualTarget = (rt == newbb);
+    rt->Release();
+  }
+
+  if(virtualTarget &&
+     pViewport->X == 0 && pViewport->Y == 0 &&
+     pViewport->Width == bbDesc.Width &&
+     pViewport->Height == bbDesc.Height &&
+     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height))
+  {
+    D3DVIEWPORT9 vp = *pViewport;
+    vp.Width = (DWORD)wantedX;
+    vp.Height = (DWORD)wantedY;
+
+    static bool loggedViewportExpansion = false;
+    if(!loggedViewportExpansion) {
+      dbg("SoftTH: Expanding app viewport %dx%d -> %dx%d on virtual backbuffer",
+          pViewport->Width, pViewport->Height, vp.Width, vp.Height);
+      loggedViewportExpansion = true;
+    }
+
+    return dev->SetViewport(&vp);
+  }
+
+  return dev->SetViewport(pViewport);
+}
+
 // FOV overrides (for non-VS apps only)
 HRESULT IDirect3DDevice9SoftTH::SetTransform(D3DTRANSFORMSTATETYPE State,CONST D3DMATRIX* pMatrix)
 {
