@@ -360,24 +360,6 @@ BOOL WINAPI NewClientToScreen(HWND hWnd, LPPOINT lpPoint)
   dbgf("hooksSoftTH: NewClientToScreen");
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ClientToScreen");
-
-  SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive &&
-     config.getNumAdditionalHeads() > 0 &&
-     inputMapIsDeviceWindow(hWnd) && lpPoint)
-  {
-    // FSX sees the virtual SoftTH client area. Convert those virtual client
-    // coordinates back to the physical desktop head before Windows positions
-    // popup menus or the cursor.
-    POINT in = *lpPoint;
-    POINT out = {-1, -1};
-    if(inputMapVirtualToDesktop(&in, &out)) {
-      dbg_input("ClientToScreen virtual: %dx%d -> %dx%d", in.x, in.y, out.x, out.y);
-      *lpPoint = out;
-      return TRUE;
-    }
-  }
-
   return origFunc(hWnd, lpPoint);
 }
 
@@ -386,21 +368,6 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
   dbgf("hooksSoftTH: NewScreenToClient");
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ScreenToClient");
-
-  SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive &&
-     config.getNumAdditionalHeads() > 0 &&
-     inputMapIsDeviceWindow(hWnd) && lpPoint)
-  {
-    // Convert the real desktop cursor position directly into SoftTH virtual
-    // backbuffer coordinates so FSX cockpit hit-testing matches sourceRect.
-    POINT p = *lpPoint;
-    pointToVirtual(&p);
-    *lpPoint = p;
-    dbg_input("ScreenToClient virtual: -> %dx%d", p.x, p.y);
-    return TRUE;
-  }
-
   return origFunc(hWnd, lpPoint);
 }
 
