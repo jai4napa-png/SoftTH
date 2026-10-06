@@ -44,6 +44,9 @@ __declspec(thread) static HHOOK threadHookMsg = NULL;  // Thread-local-storage h
 static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 {
   dbg("InputHandler: GetMsgProc");
+
+  if(nCode < 0 || wParamIn == PM_NOREMOVE)
+    return CallNextHookEx(NULL, nCode, wParamIn, lParamIn);
   HWND win = ihGlobal.getHWND();
   if(!win) {
     //dbg("!win");
@@ -123,8 +126,11 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
         break;
 
       if(msg->wParam & MOUSE_EVENTS_ALREADY_MAPPED && wmsg != WM_MOUSEWHEEL) {
-        // This message came from secondary SoftTH window and is already in correct coordinates
+        // This message came from a secondary SoftTH window. lParam already
+        // contains virtual-backbuffer coordinates; MSG.pt must match them too.
         msg->wParam -= MOUSE_EVENTS_ALREADY_MAPPED;
+        msg->pt.x = GET_X_LPARAM(msg->lParam);
+        msg->pt.y = GET_Y_LPARAM(msg->lParam);
         dbg_input("PrimaryWindow: %s: %dx%d MOUSE_EVENTS_ALREADY_MAPPED (wparam: 0x%08X)", getMouseEventName(wmsg), msg->pt.x, msg->pt.y, msg->wParam);
 
         // Send click to overlay
@@ -154,7 +160,11 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
         ScreenToClient(winCursor, &op);
         mapped = inputMapClientToVirtual(winCursor, &op, &vp);
       } else {
-        mapped = inputMapClientToVirtual(win, &msg->pt, &vp);
+        // MSG.pt is in desktop screen coordinates. Convert to the real
+        // primary client coordinates before mapping to the virtual backbuffer.
+        POINT op = {msg->pt.x, msg->pt.y};
+        ScreenToClient(win, &op);
+        mapped = inputMapClientToVirtual(win, &op, &vp);
       }
       if(!mapped) {
         // Do not eat FSX mouse input if a coordinate cannot be mapped. Passing
