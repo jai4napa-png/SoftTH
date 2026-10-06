@@ -771,6 +771,84 @@ void IDirect3DDevice9SoftTH::drawOverlay()
 }
 
 
+// Draw a virtual-canvas calibration pattern that survives the normal
+// SoftTH crop/scaling path. A phone photo of all displays can then be used to
+// measure physical placement, overlap, crop and scale.
+void IDirect3DDevice9SoftTH::drawCalibrationGrid(IDirect3DSurface9 *target)
+{
+  if(!config.debug.calibrationGrid || !target || !drawing)
+    return;
+
+  IDirect3DSurface9 *oldRT = NULL;
+  IDirect3DSurface9 *oldDS = NULL;
+  D3DVIEWPORT9 oldVP;
+  dev->GetRenderTarget(0, &oldRT);
+  dev->GetDepthStencilSurface(&oldDS);
+  dev->GetViewport(&oldVP);
+
+  dev->SetRenderTarget(0, target);
+  dev->SetDepthStencilSurface(NULL);
+
+  D3DVIEWPORT9 vp = {0, 0,
+    (DWORD)config.main.renderResolution.x,
+    (DWORD)config.main.renderResolution.y, 0.0f, 1.0f};
+  dev->SetViewport(&vp);
+
+  const int W = config.main.renderResolution.x;
+  const int H = config.main.renderResolution.y;
+  const int step = config.debug.calibrationGridStep;
+  const int lw = config.debug.calibrationLineWidth;
+
+  drawing->beginDraw();
+
+  // Regular virtual-pixel grid.
+  for(int x=0; x<W; x+=step)
+    drawing->drawBox(x, 0, lw, H, 0x90FFFFFF);
+  for(int y=0; y<H; y+=step)
+    drawing->drawBox(0, y, W, lw, 0x90FFFFFF);
+
+  // Strong center axes make scale/rotation obvious in a phone photo.
+  drawing->drawBox(max(0, W/2-lw), 0, lw*2, H, 0xE0FFFFFF);
+  drawing->drawBox(0, max(0, H/2-lw), W, lw*2, 0xE0FFFFFF);
+
+  // Border each configured physical head in its sourceRect coordinates.
+  if(config.debug.calibrationHeadBorders) {
+    for(int hi=-1; hi<config.getNumAdditionalHeads(); hi++) {
+      HEAD *h = (hi < 0) ? config.getPrimaryHead() : config.getHead(hi);
+      RECT r = h->sourceRect;
+      const int bw = max(3, lw*2);
+      drawing->drawBox(r.left, r.top, max(1, r.right-r.left), bw, 0xFFFFFFFF);
+      drawing->drawBox(r.left, max(r.top, r.bottom-bw), max(1, r.right-r.left), bw, 0xFFFFFFFF);
+      drawing->drawBox(r.left, r.top, bw, max(1, r.bottom-r.top), 0xFFFFFFFF);
+      drawing->drawBox(max(r.left, r.right-bw), r.top, bw, max(1, r.bottom-r.top), 0xFFFFFFFF);
+
+#ifdef USE_D3DX
+      if(config.debug.calibrationLabels && font) {
+        char label[128];
+        if(hi < 0)
+          sprintf(label, "PRIMARY  src=%d,%d  %dx%d", r.left, r.top, r.right-r.left, r.bottom-r.top);
+        else
+          sprintf(label, "HEAD %d / devID %d  src=%d,%d  %dx%d",
+                  hi+1, h->devID, r.left, r.top, r.right-r.left, r.bottom-r.top);
+
+        RECT tr = {r.left+18, r.top+18, min(r.right-18, r.left+900), min(r.bottom-18, r.top+90)};
+        drawing->drawBox(tr.left-8, tr.top-6, max(1, tr.right-tr.left+16), 30, 0xB0000000);
+        font->DrawText(NULL, label, -1, &tr, DT_LEFT|DT_TOP, D3DCOLOR_ARGB(255,255,255,255));
+      }
+#endif
+    }
+  }
+
+  drawing->endDraw();
+
+  dev->SetViewport(&oldVP);
+  dev->SetDepthStencilSurface(oldDS);
+  dev->SetRenderTarget(0, oldRT);
+  if(oldDS) oldDS->Release();
+  if(oldRT) oldRT->Release();
+}
+
+
 // Present backbuffer contents
 HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
@@ -834,6 +912,15 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
     for(int i=0;i<numDevs;i++)
       if(fgw == outDevs[i].output->getWindow())
         outsider = false;
+    if(outsider && fgw)
+    {
+      DWORD fgPid = 0;
+      GetWindowThreadProcessId(fgw, &fgPid);
+      if(fgPid == GetCurrentProcessId()) {
+        dbg("Focus moved to FSX-owned window; keeping SoftTH outputs active");
+        outsider = false;
+      }
+    }
     if(outsider)
     {
       char foo[256];
@@ -985,6 +1072,10 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
   IDirect3DSurface9 *srcbuf = newbb;  // Source buffer for head stretchrects
   if(srcbuf == bb)
     dbg("ERROR: srcbuf == bb??");
+
+  // Photo-calibration overlay is intentionally drawn before head cropping so
+  // every monitor shows its exact slice of one shared virtual coordinate grid.
+  drawCalibrationGrid(srcbuf);
 
   static bool doStall = config.main.smoothing;
 
