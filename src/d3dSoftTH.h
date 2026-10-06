@@ -134,6 +134,7 @@ private:
   void destroyBuffers(); // Restore to stock device
   void saveScreenshot();
   void drawOverlay();
+  void drawCalibrationGrid(IDirect3DSurface9 *target);
   bool validateSettings(IDirect3D9Ex *d3d);
   int getRefs() {dev->AddRef();return dev->Release();};
 
