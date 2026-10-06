@@ -697,6 +697,9 @@ void outDirect3D9::PresentOff()
 
 void outDirect3D9::drawLogo(IDirect3DDevice9Ex *ldev, bool nofade)
 {
+  // FSX-Win11 build: never cover a flight display with the legacy SoftTH
+  // splash. Resets and output-state changes remain visible in SoftTH.log.
+  return;
 
   if(GetTickCount() > (DWORD)logoTime && !nofade) {
     // Hide logo
