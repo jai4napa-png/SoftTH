@@ -361,18 +361,24 @@ BOOL WINAPI NewClientToScreen(HWND hWnd, LPPOINT lpPoint)
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ClientToScreen");
 
-  int x = lpPoint->x;
-  int y = lpPoint->y;
-
-  BOOL ret = origFunc(hWnd, lpPoint);
-
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive)
+  if(isHooked(srcMod) && SoftTHActive &&
+     config.getNumAdditionalHeads() > 0 &&
+     inputMapIsDeviceWindow(hWnd) && lpPoint)
   {
-    dbg_input("ClientToScreen: %dx%d -> %dx%d (%s", x, y, lpPoint->x, lpPoint->y, !ret?"FAIL!":"ok");
+    // FSX sees the virtual SoftTH client area. Convert those virtual client
+    // coordinates back to the physical desktop head before Windows positions
+    // popup menus or the cursor.
+    POINT in = *lpPoint;
+    POINT out = {-1, -1};
+    if(inputMapVirtualToDesktop(&in, &out)) {
+      dbg_input("ClientToScreen virtual: %dx%d -> %dx%d", in.x, in.y, out.x, out.y);
+      *lpPoint = out;
+      return TRUE;
+    }
   }
 
-  return ret;
+  return origFunc(hWnd, lpPoint);
 }
 
 BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
@@ -381,18 +387,21 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ScreenToClient");
 
-  int x = lpPoint->x;
-  int y = lpPoint->y;
-
-  BOOL ret = origFunc(hWnd, lpPoint);
-
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive)
+  if(isHooked(srcMod) && SoftTHActive &&
+     config.getNumAdditionalHeads() > 0 &&
+     inputMapIsDeviceWindow(hWnd) && lpPoint)
   {
-    dbg_input("ScreenToClient: %dx%d -> %dx%d (%s)", x, y, lpPoint->x, lpPoint->y, !ret?"FAIL!":"ok");
+    // Convert the real desktop cursor position directly into SoftTH virtual
+    // backbuffer coordinates so FSX cockpit hit-testing matches sourceRect.
+    POINT p = *lpPoint;
+    pointToVirtual(&p);
+    *lpPoint = p;
+    dbg_input("ScreenToClient virtual: -> %dx%d", p.x, p.y);
+    return TRUE;
   }
 
-  return ret;
+  return origFunc(hWnd, lpPoint);
 }
 
 BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
