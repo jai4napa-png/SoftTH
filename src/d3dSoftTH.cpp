@@ -98,8 +98,13 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
   }
   */
 
-  if(config.overrides.forceResolution && !pp->Windowed) {
-    dbg("Forcing device resolution from %dx%d to %dx%d", pp->BackBufferWidth, pp->BackBufferHeight, config.main.renderResolution.x, config.main.renderResolution.y);
+  if(!pp->Windowed &&
+     (config.overrides.forceResolution || config.getNumAdditionalHeads() > 0) &&
+     (pp->BackBufferWidth != config.main.renderResolution.x ||
+      pp->BackBufferHeight != config.main.renderResolution.y)) {
+    dbg("FSX multihead: forcing fullscreen device resolution from %dx%d to %dx%d",
+        pp->BackBufferWidth, pp->BackBufferHeight,
+        config.main.renderResolution.x, config.main.renderResolution.y);
     pp->BackBufferWidth = config.main.renderResolution.x;
     pp->BackBufferHeight = config.main.renderResolution.y;
   }
@@ -571,8 +576,13 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
   dbg("RESET");
 
   memcpy(&lastPp, pp, sizeof(D3DPRESENT_PARAMETERS));
-  if(config.overrides.forceResolution && !pp->Windowed) {
-    dbg("Forcing device resolution from %dx%d to %dx%d", pp->BackBufferWidth, pp->BackBufferHeight, config.main.renderResolution.x, config.main.renderResolution.y);
+  if(!pp->Windowed &&
+     (config.overrides.forceResolution || config.getNumAdditionalHeads() > 0) &&
+     (pp->BackBufferWidth != config.main.renderResolution.x ||
+      pp->BackBufferHeight != config.main.renderResolution.y)) {
+    dbg("FSX multihead: forcing fullscreen device resolution from %dx%d to %dx%d",
+        pp->BackBufferWidth, pp->BackBufferHeight,
+        config.main.renderResolution.x, config.main.renderResolution.y);
     pp->BackBufferWidth = config.main.renderResolution.x;
     pp->BackBufferHeight = config.main.renderResolution.y;
   }
