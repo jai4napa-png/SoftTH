@@ -119,6 +119,14 @@ public:
     bool compatibleTextures; // Use dynamic textures only
     bool compatibleVB; // Use compatible vertexbuffers
     bool enableVBQuirk; // Enable vertex buffer quirk mode
+
+    // FSX photo-calibration overlay. Drawn into the virtual render surface
+    // before SoftTH crops it to the physical heads.
+    bool calibrationGrid;
+    int calibrationGridStep;
+    int calibrationLineWidth;
+    bool calibrationHeadBorders;
+    bool calibrationLabels;
   } debug;
 
 private:
