@@ -217,6 +217,14 @@ void configFile::loadConfigFile()
   debug.compatibleVB = GetPrivateProfileInt("debug", "compatibleVB", 0, cfgPath)!=0;
   debug.compatibleTextures = GetPrivateProfileInt("debug", "compatibleTextures", 0, cfgPath)!=0;
   debug.enableVBQuirk = GetPrivateProfileInt("debug", "enableVBQuirk", 0, cfgPath)!=0;
+  debug.calibrationGrid = GetPrivateProfileInt("debug", "calibrationGrid", 0, cfgPath)!=0;
+  debug.calibrationGridStep = GetPrivateProfileInt("debug", "calibrationGridStep", 240, cfgPath);
+  if(debug.calibrationGridStep < 32) debug.calibrationGridStep = 32;
+  debug.calibrationLineWidth = GetPrivateProfileInt("debug", "calibrationLineWidth", 2, cfgPath);
+  if(debug.calibrationLineWidth < 1) debug.calibrationLineWidth = 1;
+  if(debug.calibrationLineWidth > 16) debug.calibrationLineWidth = 16;
+  debug.calibrationHeadBorders = GetPrivateProfileInt("debug", "calibrationHeadBorders", 1, cfgPath)!=0;
+  debug.calibrationLabels = GetPrivateProfileInt("debug", "calibrationLabels", 1, cfgPath)!=0;
 
   char names[256];
   GetPrivateProfileSectionNames(names, 256, cfgPath);
@@ -281,6 +289,11 @@ compatibleIB=0\n\
 compatibleTex=0\n\
 compatibleVB=0\n\
 enableVBQuirk=0\n\
+calibrationGrid=0\n\
+calibrationGridStep=240\n\
+calibrationLineWidth=2\n\
+calibrationHeadBorders=1\n\
+calibrationLabels=1\n\
 "};
 
 const static char cfgHeadMain[] = {"\n\
