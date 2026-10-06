@@ -570,27 +570,6 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
 {
   dbg("RESET");
 
-  // Keep the configured FSX multihead layout in fullscreen.  FSX may issue a
-  // windowed reset during startup even after device creation; without catching
-  // that reset SoftTH falls back to its single-head path.
-  if(config.getNumAdditionalHeads() > 0 && pp->Windowed) {
-    dbg("FSX multihead: forcing windowed reset to fullscreen %dx%d",
-        config.main.renderResolution.x, config.main.renderResolution.y);
-
-    pp->Windowed = FALSE;
-    pp->BackBufferWidth = config.main.renderResolution.x;
-    pp->BackBufferHeight = config.main.renderResolution.y;
-    pp->FullScreen_RefreshRateInHz = 0;
-
-    if(pp->BackBufferFormat == D3DFMT_UNKNOWN) {
-      D3DDISPLAYMODE dm;
-      if(SUCCEEDED(d3d->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &dm)))
-        pp->BackBufferFormat = dm.Format;
-      else
-        pp->BackBufferFormat = D3DFMT_X8R8G8B8;
-    }
-  }
-
   memcpy(&lastPp, pp, sizeof(D3DPRESENT_PARAMETERS));
   if(config.overrides.forceResolution && !pp->Windowed) {
     dbg("Forcing device resolution from %dx%d to %dx%d", pp->BackBufferWidth, pp->BackBufferHeight, config.main.renderResolution.x, config.main.renderResolution.y);
