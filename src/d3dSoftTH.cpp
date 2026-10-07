@@ -32,6 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "d3dDrawing.h"
 
 #include "time.h"
+#include <math.h>
 #include "Shlobj.h"
 #include "Dwmapi.h"
 
