@@ -113,6 +113,7 @@ public:
     int processAffinity;
     bool FOVForceHorizontal;
     bool FOVForceVertical;
+    float zoomOutMultiplier; // 1.0=normal, 2.0=2x wider perspective for full virtual canvas
   } overrides;
 
   struct {
