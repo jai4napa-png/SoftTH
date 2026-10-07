@@ -52,6 +52,7 @@ DEFINE_GUID(IID_SoftTHInvalidRTT, 0x12345542, 0x2134, 0x4545, 0xff, 0xff, 0xba, 
 
 volatile int SoftTHActive = 0; // >0 if SoftTH is currently active and resolution is overridden
 bool *SoftTHActiveSquashed = NULL; // Pointer to latest SoftTH device squash variable (TODO: horrible)
+HWND SoftTHPresentWindow = NULL; // FSX-owned window supplied through Present(hDestWindowOverride)
 
 // New SoftTH device instance created
 // Create our fake backbuffer etc.
@@ -892,6 +893,31 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
   if(hDestWindowOverride) {
     ONCE {
       dbg("Warning: Present with window override detected (0x%08X, 0x%08X)", hDestWindowOverride, hFocusWindow);
+    }
+
+    DWORD presentPid = 0;
+    GetWindowThreadProcessId(hDestWindowOverride, &presentPid);
+    if(presentPid == GetCurrentProcessId() && hDestWindowOverride != hFocusWindow) {
+      if(SoftTHPresentWindow != hDestWindowOverride) {
+        SoftTHPresentWindow = hDestWindowOverride;
+
+        RECT cr = {0}, wr = {0};
+        char cls[256] = {0};
+        char title[256] = {0};
+        GetClientRect(hDestWindowOverride, &cr);
+        GetWindowRect(hDestWindowOverride, &wr);
+        GetClassNameA(hDestWindowOverride, cls, sizeof(cls));
+        GetWindowTextA(hDestWindowOverride, title, sizeof(title));
+        dbg("FSX present child: hwnd=0x%08X parent=0x%08X class=<%s> title=<%s> client=%dx%d window=%dx%d",
+            hDestWindowOverride, GetParent(hDestWindowOverride), cls, title,
+            cr.right-cr.left, cr.bottom-cr.top, wr.right-wr.left, wr.bottom-wr.top);
+
+        if(newbb && wantedX > 0 && wantedY > 0) {
+          dbg("FSX present child: resizing to virtual %dx%d to trigger view rebuild", wantedX, wantedY);
+          SetWindowPos(hDestWindowOverride, NULL, 0, 0, wantedX, wantedY,
+                       SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
+        }
+      }
     }
   }
 
