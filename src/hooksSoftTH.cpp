@@ -40,6 +40,7 @@ DWORD RealDisplayCount = 99;
 #endif
 static bool isHooked(HMODULE mod);
 void* getHookCall(char *name);
+extern HWND SoftTHPresentWindow;
 
 //#ifndef _WIN64
 #if 1
@@ -379,14 +380,21 @@ BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
 
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
-  if(SoftTHActive && inputMapIsDeviceWindow(win))
+  if(SoftTHActive && (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
   {
     static bool loggedWindowRectOverride = false;
-    if(!loggedWindowRectOverride) {
+    static bool loggedPresentWindowRectOverride = false;
+    if(inputMapIsDeviceWindow(win) && !loggedWindowRectOverride) {
       dbg("FSX fullscreen: forcing main GetWindowRect to virtual %dx%d (caller %s)",
           config.main.renderResolution.x, config.main.renderResolution.y,
           getModuleName(srcMod));
       loggedWindowRectOverride = true;
+    }
+    if(win == SoftTHPresentWindow && !loggedPresentWindowRectOverride) {
+      dbg("FSX fullscreen: forcing present-child GetWindowRect to virtual %dx%d (caller %s)",
+          config.main.renderResolution.x, config.main.renderResolution.y,
+          getModuleName(srcMod));
+      loggedPresentWindowRectOverride = true;
     }
     rect->right = rect->left + config.main.renderResolution.x;
     rect->bottom = rect->top + config.main.renderResolution.y;
@@ -402,14 +410,21 @@ BOOL WINAPI NewGetClientRect(HWND win, LPRECT rect)
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
   dbgf("NewGetClientRect from %s", getModuleName(srcMod));
-  if(SoftTHActive && inputMapIsDeviceWindow(win))
+  if(SoftTHActive && (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
   {
     static bool loggedClientRectOverride = false;
-    if(!loggedClientRectOverride) {
+    static bool loggedPresentClientRectOverride = false;
+    if(inputMapIsDeviceWindow(win) && !loggedClientRectOverride) {
       dbg("FSX fullscreen: forcing main GetClientRect to virtual %dx%d (caller %s)",
           config.main.renderResolution.x, config.main.renderResolution.y,
           getModuleName(srcMod));
       loggedClientRectOverride = true;
+    }
+    if(win == SoftTHPresentWindow && !loggedPresentClientRectOverride) {
+      dbg("FSX fullscreen: forcing present-child GetClientRect to virtual %dx%d (caller %s)",
+          config.main.renderResolution.x, config.main.renderResolution.y,
+          getModuleName(srcMod));
+      loggedPresentClientRectOverride = true;
     }
     rect->left = 0;
     rect->top = 0;
@@ -498,7 +513,7 @@ BOOL WINAPI NewSetWindowPos(HWND win, HWND hWndInsertAfter, int X, int Y, int cx
   if(isHooked(srcMod) && SoftTHActive)
   {
     if(inputMapIsDeviceWindow(win)) {
-      // Disallow device window resizing & movement
+      // Keep the physical main device window on the primary monitor.
       HEAD *h = config.getPrimaryHead();
       int ncx = h->screenMode.x;
       int ncy = h->screenMode.y;
@@ -506,6 +521,17 @@ BOOL WINAPI NewSetWindowPos(HWND win, HWND hWndInsertAfter, int X, int Y, int cx
       cx = ncx;
       cy = ncy;
       X = Y = 0;
+    } else if(win == SoftTHPresentWindow) {
+      // The FSX render child must expose the virtual canvas size so FSX
+      // does not keep rebuilding its scene at the primary monitor size.
+      cx = config.main.renderResolution.x;
+      cy = config.main.renderResolution.y;
+      static bool loggedPresentResize = false;
+      if(!loggedPresentResize) {
+        dbg("FSX fullscreen: forcing present-child SetWindowPos size to %dx%d",
+            cx, cy);
+        loggedPresentResize = true;
+      }
     }
   }
 
