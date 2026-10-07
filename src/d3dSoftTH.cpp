@@ -588,6 +588,10 @@ int IDirect3DDevice9SoftTH::matchRefresh(D3DPRESENT_PARAMETERS *pp)
 HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
 {
   dbg("RESET");
+  dbg("DIAG Reset input: %dx%d %s refresh=%d hwnd=0x%08X",
+      pp->BackBufferWidth, pp->BackBufferHeight,
+      pp->Windowed?"Windowed":"Fullscreen",
+      pp->FullScreen_RefreshRateInHz, pp->hDeviceWindow);
 
   memcpy(&lastPp, pp, sizeof(D3DPRESENT_PARAMETERS));
   if(!pp->Windowed &&
@@ -609,6 +613,9 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
   if(windowedMultiheadAtReset)
     dbg("FSX: windowed multihead RESET to virtual %dx%d (app physical %dx%d)",
         wantedX, wantedY, pp->BackBufferWidth, pp->BackBufferHeight);
+  dbg("DIAG Reset effective: app=%dx%d wanted=%dx%d mode=%s",
+      pp->BackBufferWidth, pp->BackBufferHeight, wantedX, wantedY,
+      pp->Windowed?"Windowed":"Fullscreen");
 
   //dbg("SoftTH: RESET (%dx%d)", pp->BackBufferWidth, pp->BackBufferHeight);
   if(windowedMultiheadAtReset ||
@@ -1348,6 +1355,22 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
 
   IDirect3DSurface9 *actualRT = OriginalFromNewSurface(pRenderTarget);
   HRESULT ret = dev->SetRenderTarget(RenderTargetIndex, actualRT);
+  if(SUCCEEDED(ret) && RenderTargetIndex == 0 && newbb && actualRT == newbb) {
+    D3DVIEWPORT9 dvp;
+    RECT dsc;
+    if(SUCCEEDED(dev->GetViewport(&dvp)) && SUCCEEDED(dev->GetScissorRect(&dsc))) {
+      static DWORD lastRW=0xffffffff, lastRH=0xffffffff;
+      static LONG lastRR=LONG_MIN, lastRB=LONG_MIN;
+      if(dvp.Width != lastRW || dvp.Height != lastRH ||
+         dsc.right != lastRR || dsc.bottom != lastRB) {
+        dbg("DIAG SetRenderTarget newbb: vp=%d,%d %dx%d sc=%ld,%ld,%ld,%ld wanted=%dx%d physical=%dx%d",
+            dvp.X, dvp.Y, dvp.Width, dvp.Height,
+            dsc.left, dsc.top, dsc.right, dsc.bottom,
+            wantedX, wantedY, bbDesc.Width, bbDesc.Height);
+        lastRW=dvp.Width; lastRH=dvp.Height; lastRR=dsc.right; lastRB=dsc.bottom;
+      }
+    }
+  }
   // Restoring the virtual target may leave the underlying D3D9 device with
   // the native primary head's clip state. Repair only full-physical rectangles;
   // preserve FSX's deliberate smaller viewports and instrument scissor boxes.
@@ -1444,6 +1467,19 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     rt->Release();
   }
 
+  if(virtualTarget) {
+    static DWORD lastVX = 0xffffffff, lastVY = 0xffffffff;
+    static DWORD lastVW = 0xffffffff, lastVH = 0xffffffff;
+    if(pViewport->X != lastVX || pViewport->Y != lastVY ||
+       pViewport->Width != lastVW || pViewport->Height != lastVH) {
+      dbg("DIAG SetViewport virtual: x=%d y=%d w=%d h=%d wanted=%dx%d physical=%dx%d",
+          pViewport->X, pViewport->Y, pViewport->Width, pViewport->Height,
+          wantedX, wantedY, bbDesc.Width, bbDesc.Height);
+      lastVX=pViewport->X; lastVY=pViewport->Y;
+      lastVW=pViewport->Width; lastVH=pViewport->Height;
+    }
+  }
+
   // During FSX's windowed->fullscreen transition we have observed/expect
   // an intermediate full-width but physical-height viewport (5760x1080).
   // Treat either 1920x1080 or 5760x1080 as a full-scene viewport request
@@ -1485,6 +1521,18 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
   if(SUCCEEDED(dev->GetRenderTarget(0, &rt)) && rt) {
     virtualTarget = (rt == newbb);
     rt->Release();
+  }
+  if(virtualTarget) {
+    static LONG lastSL = LONG_MIN, lastST = LONG_MIN;
+    static LONG lastSR = LONG_MIN, lastSB = LONG_MIN;
+    if(pRect->left != lastSL || pRect->top != lastST ||
+       pRect->right != lastSR || pRect->bottom != lastSB) {
+      dbg("DIAG SetScissor virtual: l=%ld t=%ld r=%ld b=%ld wanted=%dx%d physical=%dx%d",
+          pRect->left, pRect->top, pRect->right, pRect->bottom,
+          wantedX, wantedY, bbDesc.Width, bbDesc.Height);
+      lastSL=pRect->left; lastST=pRect->top;
+      lastSR=pRect->right; lastSB=pRect->bottom;
+    }
   }
   // FSX can also carry a 5760x1080 scissor through the fullscreen reset.
   // Expand both the physical-size and full-width/physical-height forms.
