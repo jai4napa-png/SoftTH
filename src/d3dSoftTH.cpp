@@ -1358,6 +1358,53 @@ HRESULT IDirect3DDevice9SoftTH::GetSwapChain(UINT iSwapChain,IDirect3DSwapChain9
 }
 
 bool needQuirkRTT = false;
+HRESULT IDirect3DDevice9SoftTH::CreateRenderTarget(UINT Width,UINT Height,D3DFORMAT Format,D3DMULTISAMPLE_TYPE MultiSample,DWORD MultisampleQuality,BOOL Lockable,IDirect3DSurface9** ppSurface,HANDLE* pSharedHandle)
+{
+  if(newbb) {
+    static UINT lastW=0xffffffff,lastH=0xffffffff;
+    static D3DFORMAT lastF=(D3DFORMAT)-1;
+    if(Width!=lastW || Height!=lastH || Format!=lastF) {
+      dbg("DIAG CreateRenderTarget: %dx%d %s ms=%d q=%d lock=%d",
+          Width,Height,getMode(Format),MultiSample,MultisampleQuality,Lockable);
+      lastW=Width; lastH=Height; lastF=Format;
+    }
+  }
+  return __super::CreateRenderTarget(Width,Height,Format,MultiSample,MultisampleQuality,Lockable,ppSurface,pSharedHandle);
+}
+
+HRESULT IDirect3DDevice9SoftTH::CreateTexture(UINT Width,UINT Height,UINT Levels,DWORD Usage,D3DFORMAT Format,D3DPOOL Pool,IDirect3DTexture9** ppTexture,HANDLE* pSharedHandle)
+{
+  if(newbb && (Usage & D3DUSAGE_RENDERTARGET)) {
+    static UINT lastW=0xffffffff,lastH=0xffffffff,lastL=0xffffffff;
+    static DWORD lastU=0xffffffff;
+    static D3DFORMAT lastF=(D3DFORMAT)-1;
+    if(Width!=lastW || Height!=lastH || Levels!=lastL || Usage!=lastU || Format!=lastF) {
+      dbg("DIAG CreateTexture RT: %dx%d levels=%d usage=0x%08X fmt=%s pool=%d",
+          Width,Height,Levels,Usage,getMode(Format),Pool);
+      lastW=Width; lastH=Height; lastL=Levels; lastU=Usage; lastF=Format;
+    }
+  }
+  return __super::CreateTexture(Width,Height,Levels,Usage,Format,Pool,ppTexture,pSharedHandle);
+}
+
+HRESULT IDirect3DDevice9SoftTH::StretchRect(IDirect3DSurface9* pSourceSurface,CONST RECT* pSourceRect,IDirect3DSurface9* pDestSurface,CONST RECT* pDestRect,D3DTEXTUREFILTERTYPE Filter)
+{
+  if(newbb && pSourceSurface && pDestSurface) {
+    D3DSURFACE_DESC s={0},d={0};
+    if(SUCCEEDED(pSourceSurface->GetDesc(&s)) && SUCCEEDED(pDestSurface->GetDesc(&d))) {
+      static UINT lsw=0xffffffff,lsh=0xffffffff,ldw=0xffffffff,ldh=0xffffffff;
+      if(s.Width!=lsw || s.Height!=lsh || d.Width!=ldw || d.Height!=ldh) {
+        dbg("DIAG StretchRect: src=%dx%d dst=%dx%d srcRect=%s dstRect=%s filter=%d",
+            s.Width,s.Height,d.Width,d.Height,
+            pSourceRect?strRect(pSourceRect):"<full>",
+            pDestRect?strRect(pDestRect):"<full>",Filter);
+        lsw=s.Width; lsh=s.Height; ldw=d.Width; ldh=d.Height;
+      }
+    }
+  }
+  return __super::StretchRect(pSourceSurface,pSourceRect,pDestSurface,pDestRect,Filter);
+}
+
 HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,IDirect3DSurface9* pRenderTarget)
 {
   dbgf("IDirect3DDevice9SoftTH: SetRenderTarget %d %d", RenderTargetIndex, pRenderTarget);
@@ -1380,6 +1427,19 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
   }
 
   IDirect3DSurface9 *actualRT = OriginalFromNewSurface(pRenderTarget);
+  if(RenderTargetIndex == 0 && newbb && actualRT) {
+    D3DSURFACE_DESC rd={0};
+    if(SUCCEEDED(actualRT->GetDesc(&rd))) {
+      static IDirect3DSurface9 *lastDiagRT=NULL;
+      static UINT lastDiagW=0xffffffff,lastDiagH=0xffffffff;
+      if(actualRT!=lastDiagRT || rd.Width!=lastDiagW || rd.Height!=lastDiagH) {
+        dbg("DIAG SetRenderTarget0: ptr=0x%08X size=%dx%d fmt=%s %s",
+            actualRT,rd.Width,rd.Height,getMode(rd.Format),
+            actualRT==newbb?"<SoftTH-newbb>":"<other>");
+        lastDiagRT=actualRT; lastDiagW=rd.Width; lastDiagH=rd.Height;
+      }
+    }
+  }
   HRESULT ret = dev->SetRenderTarget(RenderTargetIndex, actualRT);
   if(SUCCEEDED(ret) && RenderTargetIndex == 0 && newbb && actualRT == newbb) {
     D3DVIEWPORT9 dvp;
