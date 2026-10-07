@@ -1420,23 +1420,47 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
   return dev->SetViewport(pViewport);
 }
 
-// FOV overrides (for non-VS apps only)
+// FOV/zoom overrides for fixed-function perspective transformations.
+// Applied to the complete virtual view before it is sliced into heads;
+// this does not change the existing head mapping or physical resolutions.
 HRESULT IDirect3DDevice9SoftTH::SetTransform(D3DTRANSFORMSTATETYPE State,CONST D3DMATRIX* pMatrix)
 {
-  if(State == D3DTS_PROJECTION && newbb && (config.overrides.FOVForceHorizontal||config.overrides.FOVForceVertical))
-  {
-    D3DMATRIX *newMatrix = (D3DMATRIX*) pMatrix;
-		D3DVIEWPORT9 vp;
-		dev->GetViewport(&vp);
-    if(vp.Width == newbbDesc.Width && vp.Height == newbbDesc.Height)
-    {
-      if(config.overrides.FOVForceHorizontal)
-        newMatrix->_11 /= 3.0f; // TODO: Calculate from new width / real width
-      if(config.overrides.FOVForceVertical)
-        newMatrix->_22 *= (float)((float)newbbDesc.Width/(float)newbbDesc.Height);
+  if(State != D3DTS_PROJECTION || !pMatrix || !newbb)
+    return dev->SetTransform(State, pMatrix);
+
+  const bool useLegacyFov = config.overrides.FOVForceHorizontal || config.overrides.FOVForceVertical;
+  const float zoom = config.overrides.zoomOutMultiplier;
+  if(!useLegacyFov && zoom <= 1.0f)
+    return dev->SetTransform(State, pMatrix);
+
+  D3DVIEWPORT9 vp;
+  if(FAILED(dev->GetViewport(&vp)))
+    return dev->SetTransform(State, pMatrix);
+  if(vp.Width != newbbDesc.Width || vp.Height != newbbDesc.Height)
+    return dev->SetTransform(State, pMatrix);
+
+  // Do not modify 2D/orthographic UI projection transforms.
+  const bool perspective = (fabsf(pMatrix->_34) > 0.001f && fabsf(pMatrix->_44) < 0.1f);
+
+  // Copy the application's const matrix: legacy SoftTH wrote through
+  // a const pointer, which can modify caller memory or fault on readonly pages.
+  D3DMATRIX corrected = *pMatrix;
+  if(config.overrides.FOVForceHorizontal)
+    corrected._11 /= 3.0f;
+  if(config.overrides.FOVForceVertical)
+    corrected._22 *= (float)newbbDesc.Width / (float)newbbDesc.Height;
+
+  if(perspective && zoom > 1.0f) {
+    corrected._11 /= zoom;
+    corrected._22 /= zoom;
+    static bool loggedZoom = false;
+    if(!loggedZoom) {
+      dbg("FSX Zoom-out: factor %.2f applied to virtual perspective", zoom);
+      loggedZoom = true;
     }
   }
-  return dev->SetTransform(State, pMatrix);
+
+  return dev->SetTransform(State, &corrected);
 }
 
 
