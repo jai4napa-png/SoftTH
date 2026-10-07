@@ -1356,8 +1356,11 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
   {
     D3DVIEWPORT9 vp;
     if(SUCCEEDED(dev->GetViewport(&vp)) && vp.X == 0 && vp.Y == 0 &&
-       vp.Width == bbDesc.Width && vp.Height == bbDesc.Height)
+       vp.Height == bbDesc.Height &&
+       (vp.Width == bbDesc.Width || vp.Width == (DWORD)wantedX))
     {
+      dbg("FSX fullscreen: correcting render-target viewport %dx%d -> %dx%d",
+          vp.Width, vp.Height, wantedX, wantedY);
       vp.Width = wantedX;
       vp.Height = wantedY;
       D3DCALL(dev->SetViewport(&vp));
@@ -1370,8 +1373,11 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
     RECT sc;
     if(SUCCEEDED(dev->GetScissorRect(&sc)) &&
        sc.left == 0 && sc.top == 0 &&
-       sc.right == (LONG)bbDesc.Width && sc.bottom == (LONG)bbDesc.Height)
+       sc.bottom == (LONG)bbDesc.Height &&
+       (sc.right == (LONG)bbDesc.Width || sc.right == (LONG)wantedX))
     {
+      dbg("FSX fullscreen: correcting render-target scissor %ldx%ld -> %dx%d",
+          sc.right, sc.bottom, wantedX, wantedY);
       RECT virtualScissor = {0, 0, wantedX, wantedY};
       D3DCALL(dev->SetScissorRect(&virtualScissor));
       static bool loggedScissorRestore = false;
@@ -1438,11 +1444,16 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     rt->Release();
   }
 
+  // During FSX's windowed->fullscreen transition we have observed/expect
+  // an intermediate full-width but physical-height viewport (5760x1080).
+  // Treat either 1920x1080 or 5760x1080 as a full-scene viewport request
+  // when the active render target is the 5760x2160 SoftTH surface.
   if(virtualTarget &&
      pViewport->X == 0 && pViewport->Y == 0 &&
-     pViewport->Width == bbDesc.Width &&
      pViewport->Height == bbDesc.Height &&
-     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height))
+     (pViewport->Width == bbDesc.Width ||
+      pViewport->Width == (DWORD)wantedX) &&
+     ((DWORD)wantedX != pViewport->Width || (DWORD)wantedY != pViewport->Height))
   {
     D3DVIEWPORT9 vp = *pViewport;
     vp.Width = (DWORD)wantedX;
@@ -1475,11 +1486,14 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
     virtualTarget = (rt == newbb);
     rt->Release();
   }
+  // FSX can also carry a 5760x1080 scissor through the fullscreen reset.
+  // Expand both the physical-size and full-width/physical-height forms.
   if(virtualTarget &&
      pRect->left == 0 && pRect->top == 0 &&
-     pRect->right == (LONG)bbDesc.Width &&
      pRect->bottom == (LONG)bbDesc.Height &&
-     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height))
+     (pRect->right == (LONG)bbDesc.Width ||
+      pRect->right == (LONG)wantedX) &&
+     ((LONG)wantedX != pRect->right || (LONG)wantedY != pRect->bottom))
   {
     RECT sc = {0, 0, wantedX, wantedY};
     static bool loggedScissorExpand = false;
