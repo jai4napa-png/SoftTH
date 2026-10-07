@@ -155,6 +155,8 @@ bool configFile::getHead(int num, HEAD *head)
 void configFile::loadConfigFile()
 {
   getResolution("main", "renderResolution", &main.renderResolution);
+  main.windowedMultihead = GetPrivateProfileInt("main", "windowedMultihead", 0, cfgPath)!=0;
+  dbg("FSX windowedMultihead: %d", main.windowedMultihead ? 1 : 0);
   main.keepComposition = GetPrivateProfileInt("main", "keepComposition", 0, cfgPath)!=0;
   main.debugD3D = GetPrivateProfileInt("main", "debugD3D", 0, cfgPath)!=0;
   main.vsync = GetPrivateProfileInt("main", "vsync", 0, cfgPath)!=0;
