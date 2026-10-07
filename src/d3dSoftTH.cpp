@@ -1555,6 +1555,94 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
   return dev->SetScissorRect(pRect);
 }
 
+// FSX can restore a physical 1920x1080 viewport through a raw D3D9
+// state block. State-block Apply() calls bypass this wrapper's SetViewport(),
+// so repair the viewport immediately before a perspective draw on SoftTH's
+// virtual render target. Orthographic/UI draws are deliberately left alone.
+void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
+{
+  if(!newbb)
+    return;
+
+  D3DVIEWPORT9 vp;
+  if(FAILED(dev->GetViewport(&vp)))
+    return;
+
+  if(vp.X != 0 || vp.Y != 0 ||
+     vp.Width != bbDesc.Width || vp.Height != bbDesc.Height ||
+     ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
+    return;
+
+  IDirect3DSurface9 *rt = NULL;
+  if(FAILED(dev->GetRenderTarget(0, &rt)) || !rt)
+    return;
+  const bool virtualTarget = (rt == newbb);
+  rt->Release();
+  if(!virtualTarget)
+    return;
+
+  D3DMATRIX proj;
+  if(FAILED(dev->GetTransform(D3DTS_PROJECTION, &proj)))
+    return;
+
+  const bool perspective = (fabsf(proj._34) > 0.001f && fabsf(proj._44) < 0.1f);
+  if(!perspective)
+    return;
+
+  const DWORD oldW = vp.Width;
+  const DWORD oldH = vp.Height;
+  vp.Width = (DWORD)wantedX;
+  vp.Height = (DWORD)wantedY;
+  if(SUCCEEDED(dev->SetViewport(&vp))) {
+    static bool loggedDrawRepair = false;
+    if(!loggedDrawRepair) {
+      dbg("FSX draw guard: repaired perspective viewport %dx%d -> %dx%d",
+          oldW, oldH, vp.Width, vp.Height);
+      loggedDrawRepair = true;
+    }
+  }
+
+  RECT sc;
+  if(SUCCEEDED(dev->GetScissorRect(&sc)) &&
+     sc.left == 0 && sc.top == 0 &&
+     sc.right == (LONG)bbDesc.Width && sc.bottom == (LONG)bbDesc.Height)
+  {
+    RECT virtualScissor = {0, 0, wantedX, wantedY};
+    dev->SetScissorRect(&virtualScissor);
+    static bool loggedDrawScissorRepair = false;
+    if(!loggedDrawScissorRepair) {
+      dbg("FSX draw guard: repaired perspective scissor %dx%d -> %dx%d",
+          bbDesc.Width, bbDesc.Height, wantedX, wantedY);
+      loggedDrawScissorRepair = true;
+    }
+  }
+}
+
+HRESULT IDirect3DDevice9SoftTH::DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount)
+{
+  repairFSXVirtualViewportForDraw();
+  return dev->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
+}
+
+HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount)
+{
+  repairFSXVirtualViewportForDraw();
+  return dev->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
+}
+
+HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
+{
+  repairFSXVirtualViewportForDraw();
+  return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+}
+
+HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
+{
+  repairFSXVirtualViewportForDraw();
+  return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
+                                     pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
+}
+
 // FOV/zoom overrides for fixed-function perspective transformations.
 // Applied to the complete virtual view before it is sliced into heads;
 // this does not change the existing head mapping or physical resolutions.
