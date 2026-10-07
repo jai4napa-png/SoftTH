@@ -18,13 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifdef _WIN64
-  #define SOFTTH_VERSION "SoftTH v3.24 x64 FSX-Win11 virtual viewport coordinate mapping"
+  #define SOFTTH_VERSION "SoftTH v3.25 x64 FSX-Win11 render-target pipeline diagnostic"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x64 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\324\\X64\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\325\\X64\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X64\\BORN2BEFLYIN"
 #else
-  #define SOFTTH_VERSION "SoftTH v3.24 x86 FSX-Win11 virtual viewport coordinate mapping"
+  #define SOFTTH_VERSION "SoftTH v3.25 x86 FSX-Win11 render-target pipeline diagnostic"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x86 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\324\\X86\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\325\\X86\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X86\\BORN2BEFLYIN"
 #endif
