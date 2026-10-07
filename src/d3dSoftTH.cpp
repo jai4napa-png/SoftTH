@@ -109,8 +109,14 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
     pp->BackBufferHeight = config.main.renderResolution.y;
   }
 
-  wantedX = pp->BackBufferWidth;
-  wantedY = pp->BackBufferHeight;
+  const bool windowedMultiheadAtCreate =
+      (pp->Windowed && config.main.windowedMultihead &&
+       config.getNumAdditionalHeads() > 0);
+  wantedX = windowedMultiheadAtCreate ? config.main.renderResolution.x : pp->BackBufferWidth;
+  wantedY = windowedMultiheadAtCreate ? config.main.renderResolution.y : pp->BackBufferHeight;
+  if(windowedMultiheadAtCreate)
+    dbg("FSX: activating %dx%d multihead backing surface without changing the windowed FSX presentation mode",
+        wantedX, wantedY);
   fpuPreserve = (BehaviorFlags&D3DCREATE_FPU_PRESERVE)!=0;
 
   if(!validateSettings(d3d)) {
@@ -126,7 +132,8 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
   detectTransportMethods();
   timeBeginPeriod(1);
 
-  if(isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) && !pp->Windowed)
+  if(windowedMultiheadAtCreate ||
+     (isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) && !pp->Windowed))
   {
     dbg("Multihead mode %dx%d detected", pp->BackBufferWidth, pp->BackBufferHeight);
 
@@ -587,13 +594,22 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
     pp->BackBufferHeight = config.main.renderResolution.y;
   }
 
-  wantedX = pp->BackBufferWidth;
-  wantedY = pp->BackBufferHeight;
+  const bool windowedMultiheadAtReset =
+      (pp->Windowed && config.main.windowedMultihead &&
+       config.getNumAdditionalHeads() > 0);
+  wantedX = windowedMultiheadAtReset ? config.main.renderResolution.x : pp->BackBufferWidth;
+  wantedY = windowedMultiheadAtReset ? config.main.renderResolution.y : pp->BackBufferHeight;
+  if(windowedMultiheadAtReset)
+    dbg("FSX: windowed multihead RESET to virtual %dx%d (app physical %dx%d)",
+        wantedX, wantedY, pp->BackBufferWidth, pp->BackBufferHeight);
 
   //dbg("SoftTH: RESET (%dx%d)", pp->BackBufferWidth, pp->BackBufferHeight);
-  if(isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) && !pp->Windowed)
+  if(windowedMultiheadAtReset ||
+     (isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) && !pp->Windowed))
   {
-    dbg("Reset: Multihead mode %dx%d %s detected", pp->BackBufferWidth, pp->BackBufferHeight, pp->Windowed?"(windowed)":"(fullscreen)");
+    dbg("Reset: Multihead mode virtual %dx%d, app %dx%d, %s",
+        wantedX, wantedY, pp->BackBufferWidth, pp->BackBufferHeight,
+        pp->Windowed?"(windowed)":"(fullscreen)");
 
     D3DPRESENT_PARAMETERS newpp = *pp;
     adjustPP(&newpp);
