@@ -267,6 +267,12 @@ void IDirect3DDevice9SoftTH::createBuffers()
   // immediately or vertically/horizontally offset heads can remain black.
   D3DVIEWPORT9 virtualVp = {0, 0, (DWORD)wantedX, (DWORD)wantedY, 0.0f, 1.0f};
   D3DCALL( dev->SetViewport(&virtualVp) );
+  // Fullscreen D3D9 devices start with a physical-backbuffer scissor rectangle.
+  // Set it to the entire virtual scene, otherwise FSX can render only the
+  // top-left 1920x1080 region and the left head shows a narrow image strip.
+  RECT virtualScissor = {0, 0, wantedX, wantedY};
+  D3DCALL( dev->SetScissorRect(&virtualScissor) );
+  dbg("FSX fullscreen: virtual scissor initialized to %dx%d", wantedX, wantedY);
   dbg("SoftTH: Virtual viewport set to %dx%d (physical backbuffer %dx%d)",
       wantedX, wantedY, bbDesc.Width, bbDesc.Height);
 
@@ -1340,7 +1346,41 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
     }
   }
 
-  HRESULT ret = dev->SetRenderTarget(RenderTargetIndex, OriginalFromNewSurface(pRenderTarget));
+  IDirect3DSurface9 *actualRT = OriginalFromNewSurface(pRenderTarget);
+  HRESULT ret = dev->SetRenderTarget(RenderTargetIndex, actualRT);
+  // Restoring the virtual target may leave the underlying D3D9 device with
+  // the native primary head's clip state. Repair only full-physical rectangles;
+  // preserve FSX's deliberate smaller viewports and instrument scissor boxes.
+  if(SUCCEEDED(ret) && RenderTargetIndex == 0 && newbb && actualRT == newbb &&
+     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height))
+  {
+    D3DVIEWPORT9 vp;
+    if(SUCCEEDED(dev->GetViewport(&vp)) && vp.X == 0 && vp.Y == 0 &&
+       vp.Width == bbDesc.Width && vp.Height == bbDesc.Height)
+    {
+      vp.Width = wantedX;
+      vp.Height = wantedY;
+      D3DCALL(dev->SetViewport(&vp));
+      static bool loggedVpRestore = false;
+      if(!loggedVpRestore) {
+        dbg("FSX fullscreen: restored full virtual viewport after render-target change");
+        loggedVpRestore = true;
+      }
+    }
+    RECT sc;
+    if(SUCCEEDED(dev->GetScissorRect(&sc)) &&
+       sc.left == 0 && sc.top == 0 &&
+       sc.right == (LONG)bbDesc.Width && sc.bottom == (LONG)bbDesc.Height)
+    {
+      RECT virtualScissor = {0, 0, wantedX, wantedY};
+      D3DCALL(dev->SetScissorRect(&virtualScissor));
+      static bool loggedScissorRestore = false;
+      if(!loggedScissorRestore) {
+        dbg("FSX fullscreen: restored full virtual scissor after render-target change");
+        loggedScissorRestore = true;
+      }
+    }
+  }
   return ret;
 }
 
@@ -1419,6 +1459,38 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
   }
 
   return dev->SetViewport(pViewport);
+}
+
+// A full-size native scissor rectangle clips an otherwise valid virtual
+// 5760x2160 scene to the upper-left 1920x1080 pixels. Preserve FSX's
+// intentional smaller scissor boxes and offscreen passes.
+HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
+{
+  if(!pRect || !newbb)
+    return dev->SetScissorRect(pRect);
+
+  IDirect3DSurface9 *rt = NULL;
+  bool virtualTarget = false;
+  if(SUCCEEDED(dev->GetRenderTarget(0, &rt)) && rt) {
+    virtualTarget = (rt == newbb);
+    rt->Release();
+  }
+  if(virtualTarget &&
+     pRect->left == 0 && pRect->top == 0 &&
+     pRect->right == (LONG)bbDesc.Width &&
+     pRect->bottom == (LONG)bbDesc.Height &&
+     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height))
+  {
+    RECT sc = {0, 0, wantedX, wantedY};
+    static bool loggedScissorExpand = false;
+    if(!loggedScissorExpand) {
+      dbg("FSX fullscreen: expanded full physical scissor %dx%d to virtual %dx%d",
+          bbDesc.Width, bbDesc.Height, wantedX, wantedY);
+      loggedScissorExpand = true;
+    }
+    return dev->SetScissorRect(&sc);
+  }
+  return dev->SetScissorRect(pRect);
 }
 
 // FOV/zoom overrides for fixed-function perspective transformations.
