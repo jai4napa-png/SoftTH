@@ -1557,8 +1557,8 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
 
 // FSX can restore a physical 1920x1080 viewport through a raw D3D9
 // state block. State-block Apply() calls bypass this wrapper's SetViewport(),
-// so repair the viewport immediately before a perspective draw on SoftTH's
-// virtual render target. Orthographic/UI draws are deliberately left alone.
+// so repair that exact full-physical viewport immediately before every draw
+// on SoftTH's virtual render target. Smaller UI viewports remain untouched.
 void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
 {
   if(!newbb)
@@ -1581,14 +1581,11 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
   if(!virtualTarget)
     return;
 
-  D3DMATRIX proj;
-  if(FAILED(dev->GetTransform(D3DTS_PROJECTION, &proj)))
-    return;
-
-  const bool perspective = (fabsf(proj._34) > 0.001f && fabsf(proj._44) < 0.1f);
-  if(!perspective)
-    return;
-
+  // FSX-SE frequently uses programmable shaders for the main 3D scene, so
+  // the fixed-function projection matrix is not a reliable way to classify
+  // the draw. The exact 1920x1080 viewport is the native full-screen viewport;
+  // expand only that exact rectangle. Smaller UI viewports (for example
+  // 1920x78 and 1920x26) are intentionally preserved.
   const DWORD oldW = vp.Width;
   const DWORD oldH = vp.Height;
   vp.Width = (DWORD)wantedX;
@@ -1596,7 +1593,7 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
   if(SUCCEEDED(dev->SetViewport(&vp))) {
     static bool loggedDrawRepair = false;
     if(!loggedDrawRepair) {
-      dbg("FSX draw guard: repaired perspective viewport %dx%d -> %dx%d",
+      dbg("FSX draw guard: repaired full physical viewport %dx%d -> %dx%d",
           oldW, oldH, vp.Width, vp.Height);
       loggedDrawRepair = true;
     }
@@ -1611,7 +1608,7 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
     dev->SetScissorRect(&virtualScissor);
     static bool loggedDrawScissorRepair = false;
     if(!loggedDrawScissorRepair) {
-      dbg("FSX draw guard: repaired perspective scissor %dx%d -> %dx%d",
+      dbg("FSX draw guard: repaired full physical scissor %dx%d -> %dx%d",
           bbDesc.Width, bbDesc.Height, wantedX, wantedY);
       loggedDrawScissorRepair = true;
     }
