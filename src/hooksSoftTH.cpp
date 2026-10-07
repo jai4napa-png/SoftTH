@@ -379,13 +379,17 @@ BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
 
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive)
+  if(SoftTHActive && inputMapIsDeviceWindow(win))
   {
-    if(inputMapIsDeviceWindow(win)) {
-      dbg_input("NewGetWindowRect: %dx%d - %dx%d OVERRIDE", rect->left, rect->top, rect->right, rect->bottom);
-      rect->right = config.main.renderResolution.x;
-      rect->bottom = config.main.renderResolution.y;
+    static bool loggedWindowRectOverride = false;
+    if(!loggedWindowRectOverride) {
+      dbg("FSX fullscreen: forcing main GetWindowRect to virtual %dx%d (caller %s)",
+          config.main.renderResolution.x, config.main.renderResolution.y,
+          getModuleName(srcMod));
+      loggedWindowRectOverride = true;
     }
+    rect->right = rect->left + config.main.renderResolution.x;
+    rect->bottom = rect->top + config.main.renderResolution.y;
   }
 	return ret;
 }
@@ -398,13 +402,19 @@ BOOL WINAPI NewGetClientRect(HWND win, LPRECT rect)
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
   dbgf("NewGetClientRect from %s", getModuleName(srcMod));
-  if(isHooked(srcMod) && SoftTHActive)
+  if(SoftTHActive && inputMapIsDeviceWindow(win))
   {
-    if(inputMapIsDeviceWindow(win)) {
-      dbg_input("NewGetClientRect: %dx%d - %dx%d OVERRIDE", rect->left, rect->top, rect->right, rect->bottom);
-      rect->right = config.main.renderResolution.x;
-      rect->bottom = config.main.renderResolution.y;
+    static bool loggedClientRectOverride = false;
+    if(!loggedClientRectOverride) {
+      dbg("FSX fullscreen: forcing main GetClientRect to virtual %dx%d (caller %s)",
+          config.main.renderResolution.x, config.main.renderResolution.y,
+          getModuleName(srcMod));
+      loggedClientRectOverride = true;
     }
+    rect->left = 0;
+    rect->top = 0;
+    rect->right = config.main.renderResolution.x;
+    rect->bottom = config.main.renderResolution.y;
   }
 	return ret;
 }
