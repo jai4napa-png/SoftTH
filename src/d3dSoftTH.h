@@ -95,6 +95,10 @@ interface IDirect3DDevice9SoftTH : public IDirect3DDevice9New
   STDMETHOD(SetViewport)(THIS_ CONST D3DVIEWPORT9* pViewport);
   STDMETHOD(SetScissorRect)(THIS_ CONST RECT* pRect);
   STDMETHOD(SetTransform)(THIS_ D3DTRANSFORMSTATETYPE State,CONST D3DMATRIX* pMatrix);
+  STDMETHOD(DrawPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount);
+  STDMETHOD(DrawIndexedPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount);
+  STDMETHOD(DrawPrimitiveUP)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride);
+  STDMETHOD(DrawIndexedPrimitiveUP)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride);
   STDMETHOD(GetSwapChain)(THIS_ UINT iSwapChain,IDirect3DSwapChain9** pSwapChain);
   STDMETHOD_(void, SetGammaRamp)(THIS_ UINT iSwapChain,DWORD Flags,CONST D3DGAMMARAMP* pRamp);
 
@@ -131,6 +135,7 @@ private:
   D3DPRESENT_PARAMETERS lastPp; // Latest present parameters
 
   void adjustPP(D3DPRESENT_PARAMETERS* pp);  // Adjusts present_parameters for SoftTH
+  void repairFSXVirtualViewportForDraw();
   void createBuffers();  // Create new rendertarget etc.
   void destroyBuffers(); // Restore to stock device
   void saveScreenshot();
