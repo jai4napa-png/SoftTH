@@ -1506,28 +1506,33 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     }
   }
 
-  // During FSX's windowed->fullscreen transition we have observed/expect
-  // an intermediate full-width but physical-height viewport (5760x1080).
-  // Treat either 1920x1080 or 5760x1080 as a full-scene viewport request
-  // when the active render target is the 5760x2160 SoftTH surface.
+  // FSX-SE continues to express its scene and UI viewports in the native
+  // primary-head coordinate system after SoftTH has switched to a larger
+  // virtual render target. Map any viewport fully contained in that native
+  // 1920x1080 coordinate space into the 5760x2160 virtual space.
   if(virtualTarget &&
-     pViewport->X == 0 && pViewport->Y == 0 &&
-     pViewport->Height == bbDesc.Height &&
-     (pViewport->Width == bbDesc.Width ||
-      pViewport->Width == (DWORD)wantedX) &&
-     ((DWORD)wantedX != pViewport->Width || (DWORD)wantedY != pViewport->Height))
+     bbDesc.Width > 0 && bbDesc.Height > 0 &&
+     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height) &&
+     pViewport->X <= bbDesc.Width && pViewport->Y <= bbDesc.Height &&
+     pViewport->Width <= bbDesc.Width && pViewport->Height <= bbDesc.Height &&
+     pViewport->X + pViewport->Width <= bbDesc.Width &&
+     pViewport->Y + pViewport->Height <= bbDesc.Height)
   {
     D3DVIEWPORT9 vp = *pViewport;
-    vp.Width = (DWORD)wantedX;
-    vp.Height = (DWORD)wantedY;
+    vp.X = (DWORD)(((ULONGLONG)pViewport->X * (ULONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    vp.Y = (DWORD)(((ULONGLONG)pViewport->Y * (ULONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+    vp.Width = (DWORD)(((ULONGLONG)pViewport->Width * (ULONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    vp.Height = (DWORD)(((ULONGLONG)pViewport->Height * (ULONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
 
-    static bool loggedViewportExpansion = false;
-    if(!loggedViewportExpansion) {
-      dbg("SoftTH: Expanding app viewport %dx%d -> %dx%d on virtual backbuffer",
-          pViewport->Width, pViewport->Height, vp.Width, vp.Height);
-      loggedViewportExpansion = true;
+    static DWORD lastInX=0xffffffff,lastInY=0xffffffff,lastInW=0xffffffff,lastInH=0xffffffff;
+    if(pViewport->X!=lastInX || pViewport->Y!=lastInY ||
+       pViewport->Width!=lastInW || pViewport->Height!=lastInH) {
+      dbg("FSX virtual viewport map: %d,%d %dx%d -> %d,%d %dx%d",
+          pViewport->X,pViewport->Y,pViewport->Width,pViewport->Height,
+          vp.X,vp.Y,vp.Width,vp.Height);
+      lastInX=pViewport->X; lastInY=pViewport->Y;
+      lastInW=pViewport->Width; lastInH=pViewport->Height;
     }
-
     return dev->SetViewport(&vp);
   }
 
@@ -1560,21 +1565,29 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
       lastSR=pRect->right; lastSB=pRect->bottom;
     }
   }
-  // FSX can also carry a 5760x1080 scissor through the fullscreen reset.
-  // Expand both the physical-size and full-width/physical-height forms.
+  // Apply the same native->virtual coordinate mapping to scissor rectangles
+  // that live completely inside the primary 1920x1080 coordinate space.
   if(virtualTarget &&
-     pRect->left == 0 && pRect->top == 0 &&
-     pRect->bottom == (LONG)bbDesc.Height &&
-     (pRect->right == (LONG)bbDesc.Width ||
-      pRect->right == (LONG)wantedX) &&
-     ((LONG)wantedX != pRect->right || (LONG)wantedY != pRect->bottom))
+     bbDesc.Width > 0 && bbDesc.Height > 0 &&
+     ((DWORD)wantedX != bbDesc.Width || (DWORD)wantedY != bbDesc.Height) &&
+     pRect->left >= 0 && pRect->top >= 0 &&
+     pRect->right >= pRect->left && pRect->bottom >= pRect->top &&
+     pRect->right <= (LONG)bbDesc.Width &&
+     pRect->bottom <= (LONG)bbDesc.Height)
   {
-    RECT sc = {0, 0, wantedX, wantedY};
-    static bool loggedScissorExpand = false;
-    if(!loggedScissorExpand) {
-      dbg("FSX fullscreen: expanded full physical scissor %dx%d to virtual %dx%d",
-          bbDesc.Width, bbDesc.Height, wantedX, wantedY);
-      loggedScissorExpand = true;
+    RECT sc;
+    sc.left   = (LONG)(((LONGLONG)pRect->left   * (LONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    sc.top    = (LONG)(((LONGLONG)pRect->top    * (LONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+    sc.right  = (LONG)(((LONGLONG)pRect->right  * (LONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    sc.bottom = (LONG)(((LONGLONG)pRect->bottom * (LONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+
+    static LONG lastL=LONG_MIN,lastT=LONG_MIN,lastR=LONG_MIN,lastB=LONG_MIN;
+    if(pRect->left!=lastL || pRect->top!=lastT ||
+       pRect->right!=lastR || pRect->bottom!=lastB) {
+      dbg("FSX virtual scissor map: %ld,%ld,%ld,%ld -> %ld,%ld,%ld,%ld",
+          pRect->left,pRect->top,pRect->right,pRect->bottom,
+          sc.left,sc.top,sc.right,sc.bottom);
+      lastL=pRect->left; lastT=pRect->top; lastR=pRect->right; lastB=pRect->bottom;
     }
     return dev->SetScissorRect(&sc);
   }
