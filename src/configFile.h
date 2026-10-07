@@ -91,6 +91,7 @@ public:
 
   struct {
     RESOLUTION renderResolution; // Wanted render resolution
+    bool windowedMultihead; // FSX: allow multihead while its application window remains windowed
     bool keepComposition; // true = Do not disable Vista desktop composition
     bool debugD3D;  // true = use debug direct3D library + hook debug output
     bool smoothing; // true = use D3D queries to sync secondary devices
