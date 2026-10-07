@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "configFile.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <windows.h>
 #include "helper.h"
 #include "version.h"
@@ -214,6 +215,11 @@ void configFile::loadConfigFile()
   overrides.processAffinity = GetPrivateProfileInt("overrides", "processAffinity", 0, cfgPath);
   overrides.FOVForceHorizontal = GetPrivateProfileInt("overrides", "FOVForceHorizontal", 0, cfgPath)!=0;
   overrides.FOVForceVertical = GetPrivateProfileInt("overrides", "FOVForceVertical", 0, cfgPath)!=0;
+  GetPrivateProfileString("overrides", "zoomOutMultiplier", "1.0", (LPSTR)&temp, 256, cfgPath);
+  overrides.zoomOutMultiplier = (float)atof(temp);
+  if(overrides.zoomOutMultiplier < 1.0f) overrides.zoomOutMultiplier = 1.0f;
+  if(overrides.zoomOutMultiplier > 4.0f) overrides.zoomOutMultiplier = 4.0f;
+  dbg("config: overrides.zoomOutMultiplier=%.2f", overrides.zoomOutMultiplier);
 
   debug.compatibleIB = GetPrivateProfileInt("debug", "compatibleIB", 0, cfgPath)!=0;
   debug.compatibleVB = GetPrivateProfileInt("debug", "compatibleVB", 0, cfgPath)!=0;
@@ -285,6 +291,7 @@ antialiasing=0\n\
 processAffinity=0\n\
 FOVForceHorizontal=0\n\
 FOVForceVertical=0\n\
+zoomOutMultiplier=1.0\n\
 \n\
 [debug]\n\
 compatibleIB=0\n\
