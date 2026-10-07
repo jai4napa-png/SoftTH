@@ -1660,15 +1660,7 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
 // on SoftTH's virtual render target. Smaller UI viewports remain untouched.
 void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
 {
-  if(!newbb)
-    return;
-
-  D3DVIEWPORT9 vp;
-  if(FAILED(dev->GetViewport(&vp)))
-    return;
-
-  if(vp.X != 0 || vp.Y != 0 ||
-     vp.Width != bbDesc.Width || vp.Height != bbDesc.Height ||
+  if(!newbb ||
      ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
     return;
 
@@ -1680,21 +1672,26 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
   if(!virtualTarget)
     return;
 
-  // FSX-SE frequently uses programmable shaders for the main 3D scene, so
-  // the fixed-function projection matrix is not a reliable way to classify
-  // the draw. The exact 1920x1080 viewport is the native full-screen viewport;
-  // expand only that exact rectangle. Smaller UI viewports (for example
-  // 1920x78 and 1920x26) are intentionally preserved.
-  const DWORD oldW = vp.Width;
-  const DWORD oldH = vp.Height;
-  vp.Width = (DWORD)wantedX;
-  vp.Height = (DWORD)wantedY;
-  if(SUCCEEDED(dev->SetViewport(&vp))) {
-    static bool loggedDrawRepair = false;
-    if(!loggedDrawRepair) {
-      dbg("FSX draw guard: repaired full physical viewport %dx%d -> %dx%d",
-          oldW, oldH, vp.Width, vp.Height);
-      loggedDrawRepair = true;
+  // A raw IDirect3DStateBlock9::Apply() bypasses SoftTH's SetViewport and
+  // SetScissorRect wrappers.  Repair viewport and scissor INDEPENDENTLY:
+  // FSX can restore only the native 1920x1080 scissor while leaving the
+  // already-correct 5760x2160 viewport intact.
+  D3DVIEWPORT9 vp;
+  if(SUCCEEDED(dev->GetViewport(&vp)) &&
+     vp.X == 0 && vp.Y == 0 &&
+     vp.Width == bbDesc.Width && vp.Height == bbDesc.Height)
+  {
+    const DWORD oldW = vp.Width;
+    const DWORD oldH = vp.Height;
+    vp.Width = (DWORD)wantedX;
+    vp.Height = (DWORD)wantedY;
+    if(SUCCEEDED(dev->SetViewport(&vp))) {
+      static bool loggedDrawRepair = false;
+      if(!loggedDrawRepair) {
+        dbg("FSX draw guard: repaired full physical viewport %dx%d -> %dx%d",
+            oldW, oldH, vp.Width, vp.Height);
+        loggedDrawRepair = true;
+      }
     }
   }
 
@@ -1704,12 +1701,19 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
      sc.right == (LONG)bbDesc.Width && sc.bottom == (LONG)bbDesc.Height)
   {
     RECT virtualScissor = {0, 0, wantedX, wantedY};
-    dev->SetScissorRect(&virtualScissor);
-    static bool loggedDrawScissorRepair = false;
-    if(!loggedDrawScissorRepair) {
-      dbg("FSX draw guard: repaired full physical scissor %dx%d -> %dx%d",
-          bbDesc.Width, bbDesc.Height, wantedX, wantedY);
-      loggedDrawScissorRepair = true;
+    if(SUCCEEDED(dev->SetScissorRect(&virtualScissor))) {
+      static bool loggedDrawScissorRepair = false;
+      if(!loggedDrawScissorRepair) {
+        D3DVIEWPORT9 nowVp;
+        if(SUCCEEDED(dev->GetViewport(&nowVp)))
+          dbg("FSX draw guard: repaired independent physical scissor %dx%d -> %dx%d (viewport %dx%d)",
+              bbDesc.Width, bbDesc.Height, wantedX, wantedY,
+              nowVp.Width, nowVp.Height);
+        else
+          dbg("FSX draw guard: repaired independent physical scissor %dx%d -> %dx%d",
+              bbDesc.Width, bbDesc.Height, wantedX, wantedY);
+        loggedDrawScissorRepair = true;
+      }
     }
   }
 }
