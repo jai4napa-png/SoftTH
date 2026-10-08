@@ -83,8 +83,19 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 
   const bool softTHPresentTarget = (SoftTHPresentWindow && msg->hwnd == SoftTHPresentWindow);
   const bool softTHDeviceTarget = inputMapIsDeviceWindow(msg->hwnd);
+  DWORD msgPid = 0;
+  if(msg->hwnd)
+    GetWindowThreadProcessId(msg->hwnd, &msgPid);
+  char msgClass[64] = {0};
+  if(msg->hwnd)
+    GetClassNameA(msg->hwnd, msgClass, sizeof(msgClass));
+  const bool fsxOwnedMouseTarget =
+      (msgPid == GetCurrentProcessId() &&
+       strcmp(msgClass, "#32768") != 0 &&
+       strcmp(msgClass, "#32770") != 0);
   const bool acceptedSoftTHMouseTarget =
-      (msg->hwnd == win || softTHPresentTarget || softTHDeviceTarget);
+      (msg->hwnd == win || softTHPresentTarget || softTHDeviceTarget ||
+       (FSXVirtualMonitorActive && fsxOwnedMouseTarget));
 
   if(msg->hwnd != win && !acceptedSoftTHMouseTarget) {
 
