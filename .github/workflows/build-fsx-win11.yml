@@ -22,13 +22,29 @@ jobs:
         shell: cmd
         run: msbuild make\SoftTH-FSX-Win11.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal
 
-      - name: Upload patched d3d9.dll
+      - name: Package public beta
+        shell: pwsh
+        run: |
+          $name = "SoftTH-v3.42-FSX-SE-Win11-Beta-x86"
+          $dir = Join-Path $PWD "dist\$name"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $dir "docs") | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $dir "examples") | Out-Null
+
+          Copy-Item "bin\fsx-win11\x86\Release\d3d9.dll" $dir
+          Copy-Item "bin\fsx-win11\x86\Release\D3DX9_43.dll" $dir
+          Copy-Item "bin\fsx-win11\x86\Release\D3DCompiler_43.dll" $dir
+          Copy-Item "LICENSE" $dir
+          Copy-Item "README.md" $dir
+          Copy-Item "RELEASE_NOTES_FSX_WIN11.md" $dir
+          Copy-Item "docs\FSX-SE-Win11.md" (Join-Path $dir "docs")
+          Copy-Item "examples\config.SoftTHconfig.example" (Join-Path $dir "examples")
+
+          Compress-Archive -Path "$dir\*" -DestinationPath "dist\$name.zip" -Force
+
+      - name: Upload public beta package
         uses: actions/upload-artifact@v4
         with:
-          name: SoftTH-FSX-Win11-x86
-          path: |
-            bin/fsx-win11/x86/Release/d3d9.dll
-            bin/fsx-win11/x86/Release/*.pdb
-            bin/fsx-win11/x86/Release/D3DX9_43.dll
-            bin/fsx-win11/x86/Release/D3DCompiler_43.dll
-          if-no-files-found: warn
+          name: SoftTH-v3.42-FSX-SE-Win11-Beta-x86
+          path: dist/SoftTH-v3.42-FSX-SE-Win11-Beta-x86.zip
+          if-no-files-found: error
