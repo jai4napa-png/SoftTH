@@ -898,22 +898,40 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
     DWORD presentPid = 0;
     GetWindowThreadProcessId(hDestWindowOverride, &presentPid);
     if(presentPid == GetCurrentProcessId() && hDestWindowOverride != hFocusWindow) {
-      if(SoftTHPresentWindow != hDestWindowOverride) {
+      char cls[256] = {0};
+      char title[256] = {0};
+      GetClassNameA(hDestWindowOverride, cls, sizeof(cls));
+      GetWindowTextA(hDestWindowOverride, title, sizeof(title));
+
+      // #32770 is the standard Win32 dialog class used by FSX setup / exit
+      // dialogs.  Earlier FSX-Win11 builds incorrectly treated these dialogs
+      // as a render child and resized them to the 5760x2160 virtual canvas.
+      // Never virtualize or resize an FSX dialog.
+      if(!_stricmp(cls, "#32770")) {
+        static HWND lastDialog = NULL;
+        if(lastDialog != hDestWindowOverride) {
+          RECT cr = {0}, wr = {0};
+          GetClientRect(hDestWindowOverride, &cr);
+          GetWindowRect(hDestWindowOverride, &wr);
+          dbg("FSX dialog present override: hwnd=0x%08X title=<%s> client=%dx%d window=%dx%d -- leaving physical",
+              hDestWindowOverride, title,
+              cr.right-cr.left, cr.bottom-cr.top, wr.right-wr.left, wr.bottom-wr.top);
+          lastDialog = hDestWindowOverride;
+        }
+        if(SoftTHPresentWindow == hDestWindowOverride)
+          SoftTHPresentWindow = NULL;
+      } else if(SoftTHPresentWindow != hDestWindowOverride) {
         SoftTHPresentWindow = hDestWindowOverride;
 
         RECT cr = {0}, wr = {0};
-        char cls[256] = {0};
-        char title[256] = {0};
         GetClientRect(hDestWindowOverride, &cr);
         GetWindowRect(hDestWindowOverride, &wr);
-        GetClassNameA(hDestWindowOverride, cls, sizeof(cls));
-        GetWindowTextA(hDestWindowOverride, title, sizeof(title));
         dbg("FSX present child: hwnd=0x%08X parent=0x%08X class=<%s> title=<%s> client=%dx%d window=%dx%d",
             hDestWindowOverride, GetParent(hDestWindowOverride), cls, title,
             cr.right-cr.left, cr.bottom-cr.top, wr.right-wr.left, wr.bottom-wr.top);
 
         if(newbb && wantedX > 0 && wantedY > 0) {
-          dbg("FSX present child: resizing to virtual %dx%d to trigger view rebuild", wantedX, wantedY);
+          dbg("FSX present child: resizing non-dialog child to virtual %dx%d", wantedX, wantedY);
           SetWindowPos(hDestWindowOverride, NULL, 0, 0, wantedX, wantedY,
                        SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
         }
@@ -964,28 +982,38 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
   if(fgw != hFocusWindow)
   {
     dbgf("IDirect3DDevice9SoftTH::Present: Focus lost");
-    bool outsider = true;
+    bool isSoftTHOutput = false;
     for(int i=0;i<numDevs;i++)
       if(fgw == outDevs[i].output->getWindow())
-        outsider = false;
-    if(outsider && fgw)
+        isSoftTHOutput = true;
+
+    if(!isSoftTHOutput)
     {
+      char foo[256] = {0};
+      char cls[128] = {0};
+      GetWindowTextA(fgw, foo, sizeof(foo));
+      GetClassNameA(fgw, cls, sizeof(cls));
+
       DWORD fgPid = 0;
-      GetWindowThreadProcessId(fgw, &fgPid);
+      if(fgw)
+        GetWindowThreadProcessId(fgw, &fgPid);
+
       if(fgPid == GetCurrentProcessId()) {
-        dbg("Focus moved to FSX-owned window; keeping SoftTH outputs active");
-        outsider = false;
+        dbg("FSX-owned foreground window: class=<%s> title=<%s>; suspending SoftTH outputs so dialog stays visible",
+            cls, foo);
+        // The foreground window is already active; this only raises its Z order
+        // above stale SoftTH output windows without making it TOPMOST.
+        BringWindowToTop(fgw);
+      } else {
+        dbg("Lost focus to: <%s>", foo);
       }
-    }
-    if(outsider)
-    {
-      char foo[256];
-      GetWindowText(GetForegroundWindow(), foo, 256);
-      dbg("Lost focus to: <%s>", foo);
+
+      // Do not leave secondary SoftTH fullscreen windows covering Task Manager,
+      // FSX setup, End Flight, or other dialogs.
+      for(int i=0;i<numDevs;i++)
+        outDevs[i].output->minimize();
+
       notactive = true;
-      /*for(int i=0;i<numDevs;i++)
-        outDevs[i].output->minimize();*/
-      //ShowWindow(hFocusWindow, SW_SHOWMINNOACTIVE);
     }
   }
 
@@ -1675,51 +1703,11 @@ static bool fsxLooksLikePhysicalScreenConstant(float v, float w, float h)
 
 HRESULT IDirect3DDevice9SoftTH::SetVertexShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
 {
-  if(newbb && pConstantData && Vector4fCount) {
-    const float w=(float)bbDesc.Width, h=(float)bbDesc.Height;
-    bool hit=false;
-    UINT hitVec=0;
-    for(UINT i=0;i<Vector4fCount && !hit;i++)
-      for(int j=0;j<4;j++)
-        if(fsxLooksLikePhysicalScreenConstant(pConstantData[i*4+j], w, h)) {
-          hit=true; hitVec=i; break;
-        }
-    if(hit) {
-      const float *v=&pConstantData[hitVec*4];
-      static int loggedVSConsts=0;
-      if(loggedVSConsts < 80) {
-        dbg("DIAG VS const physical-size hit: c%d (%g,%g,%g,%g) count=%d physical=%dx%d wanted=%dx%d",
-            StartRegister+hitVec,v[0],v[1],v[2],v[3],Vector4fCount,
-            bbDesc.Width,bbDesc.Height,wantedX,wantedY);
-        loggedVSConsts++;
-      }
-    }
-  }
   return dev->SetVertexShaderConstantF(StartRegister,pConstantData,Vector4fCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::SetPixelShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
 {
-  if(newbb && pConstantData && Vector4fCount) {
-    const float w=(float)bbDesc.Width, h=(float)bbDesc.Height;
-    bool hit=false;
-    UINT hitVec=0;
-    for(UINT i=0;i<Vector4fCount && !hit;i++)
-      for(int j=0;j<4;j++)
-        if(fsxLooksLikePhysicalScreenConstant(pConstantData[i*4+j], w, h)) {
-          hit=true; hitVec=i; break;
-        }
-    if(hit) {
-      const float *v=&pConstantData[hitVec*4];
-      static int loggedPSConsts=0;
-      if(loggedPSConsts < 80) {
-        dbg("DIAG PS const physical-size hit: c%d (%g,%g,%g,%g) count=%d physical=%dx%d wanted=%dx%d",
-            StartRegister+hitVec,v[0],v[1],v[2],v[3],Vector4fCount,
-            bbDesc.Width,bbDesc.Height,wantedX,wantedY);
-        loggedPSConsts++;
-      }
-    }
-  }
   return dev->SetPixelShaderConstantF(StartRegister,pConstantData,Vector4fCount);
 }
 
@@ -1875,28 +1863,24 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXDrawState("DP",PrimitiveType,PrimitiveCount,0);
   return dev->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXDrawState("DIP",PrimitiveType,primCount,0);
   return dev->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXDrawState("DPUP",PrimitiveType,PrimitiveCount,VertexStreamZeroStride);
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXDrawState("DIPUP",PrimitiveType,PrimitiveCount,VertexStreamZeroStride);
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
                                      pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
