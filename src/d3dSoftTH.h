@@ -141,6 +141,7 @@ private:
 
   void adjustPP(D3DPRESENT_PARAMETERS* pp);  // Adjusts present_parameters for SoftTH
   void diagFSXDrawState(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount, UINT strideHint);
+  bool scaleFSXPhysicalScreenVertices(const void *src, UINT vertexCount, UINT stride, BYTE **scaledCopy);
   void repairFSXVirtualViewportForDraw();
   void createBuffers();  // Create new rendertarget etc.
   void destroyBuffers(); // Restore to stock device
