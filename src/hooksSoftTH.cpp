@@ -43,6 +43,8 @@ void* getHookCall(char *name);
 extern HWND SoftTHPresentWindow;
 extern volatile int FSXVirtualMonitorActive;
 static bool fsxForegroundIsDialog();
+static bool fsxWindowBelongsToThisProcess(HWND hWnd);
+__declspec(thread) static bool fsxCoordinateHookGuard = false;
 
 // FSX needs virtual cursor coordinates for its 5760x2160 render/UI hit testing,
 // but native Win32 popup menus must still be positioned in real desktop pixels.
@@ -415,6 +417,37 @@ BOOL WINAPI NewClientToScreen(HWND hWnd, LPPOINT lpPoint)
   dbgf("hooksSoftTH: NewClientToScreen");
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ClientToScreen");
+
+  if(!lpPoint || fsxCoordinateHookGuard ||
+     !SoftTHActive || !FSXVirtualMonitorActive || fsxForegroundIsDialog() ||
+     !fsxWindowBelongsToThisProcess(hWnd))
+    return origFunc(hWnd, lpPoint);
+
+  // FSX fullscreen client coordinates are virtual-backbuffer coordinates.
+  // Convert them back to the real desktop before Win32 positions a popup,
+  // tooltip, cursor, etc.  This is the inverse of NewScreenToClient below.
+  POINT vin = *lpPoint;
+  POINT physical = {-1,-1};
+  if(vin.x >= 0 && vin.y >= 0 &&
+     vin.x < config.main.renderResolution.x &&
+     vin.y < config.main.renderResolution.y)
+  {
+    fsxCoordinateHookGuard = true;
+    bool mapped = inputMapVirtualToDesktop(&vin, &physical);
+    fsxCoordinateHookGuard = false;
+    if(mapped)
+    {
+      static int logged = 0;
+      if(logged < 16) {
+        dbg("FSX ClientToScreen virtual->desktop hwnd=0x%08X %d,%d -> %d,%d",
+            hWnd, vin.x, vin.y, physical.x, physical.y);
+        logged++;
+      }
+      *lpPoint = physical;
+      return TRUE;
+    }
+  }
+
   return origFunc(hWnd, lpPoint);
 }
 
@@ -423,6 +456,32 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
   dbgf("hooksSoftTH: NewScreenToClient");
 	typedef BOOL (WINAPI*OCALL)(HWND, LPPOINT);
 	const static OCALL origFunc = (OCALL) getHookCall("ScreenToClient");
+
+  if(!lpPoint || fsxCoordinateHookGuard ||
+     !SoftTHActive || !FSXVirtualMonitorActive || fsxForegroundIsDialog() ||
+     !fsxWindowBelongsToThisProcess(hWnd))
+    return origFunc(hWnd, lpPoint);
+
+  // Preserve the real desktop point and map it directly through the SoftTH
+  // head rectangles to the 5760x2160 virtual canvas.  FSX uses this path for
+  // VC mouse hit-testing on modern Windows.
+  POINT screen = *lpPoint;
+  POINT vp = {-1,-1};
+  fsxCoordinateHookGuard = true;
+  bool mapped = inputMapScreenToVirtual(&screen, &vp);
+  fsxCoordinateHookGuard = false;
+  if(mapped)
+  {
+    static int logged = 0;
+    if(logged < 16) {
+      dbg("FSX ScreenToClient desktop->virtual hwnd=0x%08X %d,%d -> %d,%d",
+          hWnd, screen.x, screen.y, vp.x, vp.y);
+      logged++;
+    }
+    *lpPoint = vp;
+    return TRUE;
+  }
+
   return origFunc(hWnd, lpPoint);
 }
 
@@ -758,6 +817,22 @@ static bool fsxForegroundIsDialog()
   char cls[64]={0};
   GetClassNameA(fg,cls,sizeof(cls));
   return strcmp(cls,"#32770")==0;
+}
+
+static bool fsxWindowBelongsToThisProcess(HWND hWnd)
+{
+  if(!hWnd) return false;
+  DWORD pid=0;
+  GetWindowThreadProcessId(hWnd,&pid);
+  if(pid != GetCurrentProcessId())
+    return false;
+
+  char cls[64]={0};
+  GetClassNameA(hWnd,cls,sizeof(cls));
+  // Never virtualize native Windows menu/dialog windows.
+  if(strcmp(cls,"#32768")==0 || strcmp(cls,"#32770")==0)
+    return false;
+  return true;
 }
 
 BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
