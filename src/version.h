@@ -18,13 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifdef _WIN64
-  #define SOFTTH_VERSION "SoftTH v3.36 x64 FSX-Win11 native POSITIONT scaling"
+  #define SOFTTH_VERSION "SoftTH v3.37 x64 FSX-Win11 viewport caller propagation"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x64 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\336\\X64\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\337\\X64\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X64\\BORN2BEFLYIN"
 #else
-  #define SOFTTH_VERSION "SoftTH v3.36 x86 FSX-Win11 native POSITIONT scaling"
+  #define SOFTTH_VERSION "SoftTH v3.37 x86 FSX-Win11 viewport caller propagation"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x86 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\336\\X86\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\337\\X86\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X86\\BORN2BEFLYIN"
 #endif
