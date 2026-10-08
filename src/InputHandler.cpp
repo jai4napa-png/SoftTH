@@ -40,6 +40,7 @@ std::list<DWORD> hookedThreads; // List of all active hooks
 
 InputHandler ihGlobal; // Global handler. init automatically on dll start
 __declspec(thread) static HHOOK threadHookMsg = NULL;  // Thread-local-storage hook handle
+extern HWND SoftTHPresentWindow;
 
 static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 {
@@ -80,8 +81,12 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
       break;
   }
 
-  bool hookAllWindows = false;
-  if(msg->hwnd != win && !hookAllWindows) {
+  const bool softTHPresentTarget = (SoftTHPresentWindow && msg->hwnd == SoftTHPresentWindow);
+  const bool softTHDeviceTarget = inputMapIsDeviceWindow(msg->hwnd);
+  const bool acceptedSoftTHMouseTarget =
+      (msg->hwnd == win || softTHPresentTarget || softTHDeviceTarget);
+
+  if(msg->hwnd != win && !acceptedSoftTHMouseTarget) {
 
     char msgTxt[256];
     switch(wmsg) {
@@ -105,6 +110,21 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 
   if(wmsg == WM_MOUSELEAVE)
     msg->message = WM_NULL;
+
+  if(softTHPresentTarget) {
+    switch(wmsg) {
+      case MOUSE_ALL_WM_EVENTS:
+      {
+        static int loggedPresentMouse = 0;
+        if(loggedPresentMouse < 12) {
+          dbg("FSX input: accepting mouse message for Present override window hwnd=0x%08X event=%s",
+              msg->hwnd, getMouseEventName(wmsg));
+          loggedPresentMouse++;
+        }
+        break;
+      }
+    }
+  }
 
   switch(wmsg) {
 
