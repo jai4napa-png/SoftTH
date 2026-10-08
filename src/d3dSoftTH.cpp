@@ -144,8 +144,9 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
     D3DPRESENT_PARAMETERS newpp = *pp;
     adjustPP(&newpp);
 
-    // Create device
-    bool fullscreen = pp->Windowed==0;
+    // Create device. adjustPP() may force only the underlying physical
+    // primary device to windowed mode while FSX remains logically fullscreen.
+    bool fullscreen = newpp.Windowed==0;
     D3DDISPLAYMODEEX mode = {
       sizeof(D3DDISPLAYMODEEX),
       newpp.BackBufferWidth,  newpp.BackBufferHeight,
@@ -429,6 +430,15 @@ void IDirect3DDevice9SoftTH::adjustPP(D3DPRESENT_PARAMETERS *pp)
   pp->BackBufferWidth = hp->screenMode.x;
   pp->BackBufferHeight = hp->screenMode.y;
   dbg("Primary head: %dx%d", hp->screenMode.x, hp->screenMode.y);
+
+  // FSX-Win11: keep SoftTH's physical primary device composited/windowed
+  // even while FSX logically runs fullscreen on the virtual canvas.
+  if(config.getNumAdditionalHeads() > 0 && !pp->Windowed) {
+    dbg("FSX focus safety: physical primary device forced windowed at %dx%d while logical mode remains fullscreen",
+        hp->screenMode.x, hp->screenMode.y);
+    pp->Windowed = TRUE;
+    pp->FullScreen_RefreshRateInHz = 0;
+  }
 
   hp->hwnd = hFocusWindow;
 
@@ -998,14 +1008,19 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
       if(fgw)
         GetWindowThreadProcessId(fgw, &fgPid);
 
+      static HWND lastForegroundLogged = NULL;
       if(fgPid == GetCurrentProcessId()) {
-        dbg("FSX-owned foreground window: class=<%s> title=<%s>; suspending SoftTH outputs so dialog stays visible",
-            cls, foo);
-        // The foreground window is already active; this only raises its Z order
-        // above stale SoftTH output windows without making it TOPMOST.
+        if(lastForegroundLogged != fgw) {
+          dbg("FSX-owned foreground window: class=<%s> title=<%s>; suspending SoftTH outputs so dialog stays visible",
+              cls, foo);
+          lastForegroundLogged = fgw;
+        }
         BringWindowToTop(fgw);
       } else {
-        dbg("Lost focus to: <%s>", foo);
+        if(lastForegroundLogged != fgw) {
+          dbg("Lost focus to: <%s>", foo);
+          lastForegroundLogged = fgw;
+        }
       }
 
       // Do not leave secondary SoftTH fullscreen windows covering Task Manager,
