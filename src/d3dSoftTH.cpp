@@ -1670,26 +1670,6 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     }
     fsxCachedViewport = vp;
 
-    // FSX generates large parts of the scene as pre-transformed POSITIONT
-    // vertices immediately after this call. v3.34-v3.36 proved those vertices
-    // are still calculated from the native 1920x1080 viewport even though the
-    // underlying D3D viewport is already virtual.  For the exact full-screen
-    // viewport only, propagate the mapped size back into FSX's writable input
-    // structure so code that reuses the same viewport object sees 5760x2160.
-    if(pViewport->X == 0 && pViewport->Y == 0 &&
-       pViewport->Width == bbDesc.Width && pViewport->Height == bbDesc.Height &&
-       fsxWritableMemory(pViewport, sizeof(D3DVIEWPORT9)))
-    {
-      D3DVIEWPORT9 *callerVp = const_cast<D3DVIEWPORT9*>(pViewport);
-      *callerVp = vp;
-      static bool loggedCallerVp = false;
-      if(!loggedCallerVp) {
-        dbg("FSX viewport caller memory promoted: %dx%d -> %dx%d",
-            bbDesc.Width, bbDesc.Height, vp.Width, vp.Height);
-        loggedCallerVp = true;
-      }
-    }
-
     return dev->SetViewport(&vp);
   }
 
