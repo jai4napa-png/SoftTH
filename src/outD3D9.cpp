@@ -617,17 +617,16 @@ void outDirect3D9::Present()
   {
     return;
   }
-/*
-  // check for minimized window
-  WINDOWPLACEMENT wpl;
-  GetWindowPlacement(outWin, &wpl);
-  if(wpl.showCmd == SW_SHOWMINIMIZED)
-  {
-    dbg("outDirect3D9: Restoring window");
-    ShowWindow(outWin, SW_SHOWNOACTIVATE);
-    Sleep(100);
-  }
 
+  // FSX-Win11: secondary heads are minimized while setup/exit/Task Manager
+  // owns the foreground. Restore them automatically when active rendering
+  // resumes; do not steal keyboard focus.
+  if(IsIconic(outWin))
+  {
+    dbg("outDirect3D9: restoring minimized secondary output");
+    ShowWindow(outWin, SW_SHOWNOACTIVATE);
+  }
+/*
   // Verify window is positioned corretly on monitor
   GetMonitorInfo(mId, &mInfo);
   if(wpl.rcNormalPosition.left != mInfo.rcMonitor.left || wpl.rcNormalPosition.right != mInfo.rcMonitor.right ||
