@@ -1875,6 +1875,143 @@ void IDirect3DDevice9SoftTH::repairFSXVirtualViewportForDraw()
   }
 }
 
+static UINT fsxUPVertexCount(D3DPRIMITIVETYPE pt, UINT primitiveCount)
+{
+  switch(pt) {
+    case D3DPT_POINTLIST:     return primitiveCount;
+    case D3DPT_LINELIST:      return primitiveCount * 2;
+    case D3DPT_LINESTRIP:     return primitiveCount + 1;
+    case D3DPT_TRIANGLELIST:  return primitiveCount * 3;
+    case D3DPT_TRIANGLESTRIP:
+    case D3DPT_TRIANGLEFAN:   return primitiveCount + 2;
+    default:                   return 0;
+  }
+}
+
+bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UINT vertexCount, UINT stride, BYTE **scaledCopy)
+{
+  if(scaledCopy) *scaledCopy = NULL;
+  if(!scaledCopy || !src || !newbb || vertexCount < 3 || vertexCount > 64 ||
+     stride < 8 || stride > 256 ||
+     bbDesc.Width == 0 || bbDesc.Height == 0 ||
+     ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
+    return false;
+
+  // Only touch draws going directly to SoftTH's virtual backbuffer.
+  IDirect3DSurface9 *rt = NULL;
+  if(FAILED(dev->GetRenderTarget(0, &rt)) || !rt)
+    return false;
+  const bool virtualTarget = (rt == newbb);
+  rt->Release();
+  if(!virtualTarget)
+    return false;
+
+  // Determine where POSITIONT / XYZRHW lives in each vertex.
+  UINT posOffset = 0;
+  bool positionT = false;
+
+  DWORD fvf = 0;
+  if(SUCCEEDED(dev->GetFVF(&fvf)) &&
+     (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW)
+  {
+    positionT = true;
+    posOffset = 0;
+  }
+  else
+  {
+    IDirect3DVertexDeclaration9 *decl = NULL;
+    if(SUCCEEDED(dev->GetVertexDeclaration(&decl)) && decl) {
+      D3DVERTEXELEMENT9 elems[MAXD3DDECLLENGTH+1];
+      UINT n = MAXD3DDECLLENGTH+1;
+      if(SUCCEEDED(decl->GetDeclaration(elems, &n))) {
+        for(UINT i=0; i<n; i++) {
+          if(elems[i].Stream == 0xFF) break;
+          if(elems[i].Stream == 0 &&
+             elems[i].Usage == D3DDECLUSAGE_POSITIONT &&
+             elems[i].Type == D3DDECLTYPE_FLOAT4)
+          {
+            positionT = true;
+            posOffset = elems[i].Offset;
+            break;
+          }
+        }
+      }
+      decl->Release();
+    }
+  }
+
+  if(!positionT || posOffset + sizeof(float)*2 > stride)
+    return false;
+
+  // We are looking for the exact failure seen in the SoftTH screenshot:
+  // a full-screen quad whose screen-space coordinates still span the native
+  // 1920x1080 primary head even though the render target is 5760x2160.
+  float minX=1.0e30f, minY=1.0e30f, maxX=-1.0e30f, maxY=-1.0e30f;
+  const BYTE *bytes = (const BYTE*)src;
+  for(UINT i=0; i<vertexCount; i++) {
+    const float *p = (const float*)(bytes + i*stride + posOffset);
+    const float x=p[0], y=p[1];
+    if(x < minX) minX=x; if(x > maxX) maxX=x;
+    if(y < minY) minY=y; if(y > maxY) maxY=y;
+  }
+
+  const float pw=(float)bbDesc.Width, ph=(float)bbDesc.Height;
+  if(minX < -4.0f || minY < -4.0f ||
+     maxX > pw+4.0f || maxY > ph+4.0f ||
+     (maxX-minX) < pw*0.80f || (maxY-minY) < ph*0.80f)
+    return false;
+
+  // Strong safety guard: only scale a physical-size screen quad when it is
+  // sampling a virtual-size texture.  This targets FSX's final scene
+  // composition pass without stretching ordinary 2D dialogs or gauges.
+  UINT texW=0, texH=0;
+  IDirect3DBaseTexture9 *baseTex = NULL;
+  if(SUCCEEDED(dev->GetTexture(0, &baseTex)) && baseTex) {
+    if(baseTex->GetType() == D3DRTYPE_TEXTURE) {
+      IDirect3DTexture9 *tex = NULL;
+      if(SUCCEEDED(baseTex->QueryInterface(IID_IDirect3DTexture9, (void**)&tex)) && tex) {
+        D3DSURFACE_DESC td;
+        if(SUCCEEDED(tex->GetLevelDesc(0, &td))) {
+          texW=td.Width; texH=td.Height;
+        }
+        tex->Release();
+      }
+    }
+    baseTex->Release();
+  }
+  if(texW != (UINT)wantedX || texH != (UINT)wantedY)
+    return false;
+
+  const size_t total = (size_t)vertexCount * (size_t)stride;
+  BYTE *copy = new BYTE[total];
+  memcpy(copy, src, total);
+
+  const float sx=(float)wantedX/pw;
+  const float sy=(float)wantedY/ph;
+  const bool halfPixel = (minX < -0.25f || minY < -0.25f);
+
+  for(UINT i=0; i<vertexCount; i++) {
+    float *p = (float*)(copy + i*stride + posOffset);
+    if(halfPixel) {
+      p[0] = (p[0] + 0.5f) * sx - 0.5f;
+      p[1] = (p[1] + 0.5f) * sy - 0.5f;
+    } else {
+      p[0] *= sx;
+      p[1] *= sy;
+    }
+  }
+
+  static bool logged = false;
+  if(!logged) {
+    dbg("FSX screen-space scene composite: scaled POSITIONT quad %.1f,%.1f-%.1f,%.1f -> virtual %dx%d (texture %dx%d)",
+        minX,minY,maxX,maxY,wantedX,wantedY,texW,texH);
+    logged = true;
+  }
+
+  *scaledCopy = copy;
+  return true;
+}
+
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount)
 {
   repairFSXVirtualViewportForDraw();
@@ -1890,12 +2027,30 @@ HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveT
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
+
+  BYTE *scaled = NULL;
+  const UINT vertexCount = fsxUPVertexCount(PrimitiveType, PrimitiveCount);
+  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData, vertexCount, VertexStreamZeroStride, &scaled)) {
+    HRESULT ret = dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, scaled, VertexStreamZeroStride);
+    delete[] scaled;
+    return ret;
+  }
+
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
+
+  BYTE *scaled = NULL;
+  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData, NumVertices, VertexStreamZeroStride, &scaled)) {
+    HRESULT ret = dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
+                                               pIndexData, IndexDataFormat, scaled, VertexStreamZeroStride);
+    delete[] scaled;
+    return ret;
+  }
+
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
                                      pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
