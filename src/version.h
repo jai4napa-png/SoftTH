@@ -18,13 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifdef _WIN64
-  #define SOFTTH_VERSION "SoftTH v3.38 x64 FSX-Win11 primary monitor virtualization"
+  #define SOFTTH_VERSION "SoftTH v3.39 x64 FSX-Win11 g2d render-only monitor virtualization"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x64 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\338\\X64\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\339\\X64\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X64\\BORN2BEFLYIN"
 #else
-  #define SOFTTH_VERSION "SoftTH v3.38 x86 FSX-Win11 primary monitor virtualization"
+  #define SOFTTH_VERSION "SoftTH v3.39 x86 FSX-Win11 g2d render-only monitor virtualization"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x86 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\338\\X86\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\339\\X86\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X86\\BORN2BEFLYIN"
 #endif
