@@ -77,6 +77,16 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
   lockableBB = squash = showGraph = nocopy = showLog = false;
   curSurfA = true;
 
+  fsxCachedFVF = 0;
+  fsxCachedUsingDecl = false;
+  fsxCachedPositionT = false;
+  fsxCachedVertexShader = false;
+  fsxCachedStride0 = 0;
+  fsxCachedTex0W = fsxCachedTex0H = 0;
+  fsxCachedPhysicalVSConstReg = -1;
+  fsxCachedPhysicalPSConstReg = -1;
+  ZeroMemory(&fsxCachedViewport, sizeof(fsxCachedViewport));
+
   refs = messageTime = numDevs = 0;
 
   bbtex = NULL;
@@ -269,6 +279,7 @@ void IDirect3DDevice9SoftTH::createBuffers()
   // immediately or vertically/horizontally offset heads can remain black.
   D3DVIEWPORT9 virtualVp = {0, 0, (DWORD)wantedX, (DWORD)wantedY, 0.0f, 1.0f};
   D3DCALL( dev->SetViewport(&virtualVp) );
+  fsxCachedViewport = virtualVp;
   // Fullscreen D3D9 devices start with a physical-backbuffer scissor rectangle.
   // Set it to the entire virtual scene, otherwise FSX can render only the
   // top-left 1920x1080 region and the left head shows a narrow image strip.
@@ -1587,7 +1598,8 @@ HRESULT IDirect3DDevice9SoftTH::GetDisplayMode(UINT iSwapChain, D3DDISPLAYMODE* 
 HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
 {
   if(!pViewport || !newbb)
-    return dev->SetViewport(pViewport);
+    if(pViewport) fsxCachedViewport = *pViewport;
+  return dev->SetViewport(pViewport);
 
   bool virtualTarget = false;
   IDirect3DSurface9 *rt = NULL;
@@ -1636,6 +1648,7 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
       lastInX=pViewport->X; lastInY=pViewport->Y;
       lastInW=pViewport->Width; lastInH=pViewport->Height;
     }
+    fsxCachedViewport = vp;
     return dev->SetViewport(&vp);
   }
 
@@ -1718,12 +1731,148 @@ static bool fsxLooksLikePhysicalScreenConstant(float v, float w, float h)
 
 HRESULT IDirect3DDevice9SoftTH::SetVertexShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
 {
+  if(newbb && pConstantData && Vector4fCount && bbDesc.Width && bbDesc.Height) {
+    bool hit=false;
+    UINT hitVec=0;
+    for(UINT v=0; v<Vector4fCount && !hit; v++) {
+      for(int k=0;k<4;k++) {
+        if(fsxLooksLikePhysicalScreenConstant(pConstantData[v*4+k], (float)bbDesc.Width, (float)bbDesc.Height)) {
+          hit=true; hitVec=v; break;
+        }
+      }
+    }
+    if(hit) {
+      fsxCachedPhysicalVSConstReg = (int)(StartRegister + hitVec);
+      static bool seen[256]={false};
+      const UINT r=StartRegister+hitVec;
+      if(r<256 && !seen[r]) {
+        seen[r]=true;
+        const float *p=pConstantData+hitVec*4;
+        dbg("DIAG CACHE VS physical constant c%d=(%g,%g,%g,%g)", r,p[0],p[1],p[2],p[3]);
+      }
+    }
+  }
   return dev->SetVertexShaderConstantF(StartRegister,pConstantData,Vector4fCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::SetPixelShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
 {
+  if(newbb && pConstantData && Vector4fCount && bbDesc.Width && bbDesc.Height) {
+    bool hit=false;
+    UINT hitVec=0;
+    for(UINT v=0; v<Vector4fCount && !hit; v++) {
+      for(int k=0;k<4;k++) {
+        if(fsxLooksLikePhysicalScreenConstant(pConstantData[v*4+k], (float)bbDesc.Width, (float)bbDesc.Height)) {
+          hit=true; hitVec=v; break;
+        }
+      }
+    }
+    if(hit) {
+      fsxCachedPhysicalPSConstReg = (int)(StartRegister + hitVec);
+      static bool seen[224]={false};
+      const UINT r=StartRegister+hitVec;
+      if(r<224 && !seen[r]) {
+        seen[r]=true;
+        const float *p=pConstantData+hitVec*4;
+        dbg("DIAG CACHE PS physical constant c%d=(%g,%g,%g,%g)", r,p[0],p[1],p[2],p[3]);
+      }
+    }
+  }
   return dev->SetPixelShaderConstantF(StartRegister,pConstantData,Vector4fCount);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetFVF(DWORD FVF)
+{
+  fsxCachedFVF = FVF;
+  fsxCachedUsingDecl = false;
+  fsxCachedPositionT = ((FVF & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW);
+  return dev->SetFVF(FVF);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetVertexDeclaration(IDirect3DVertexDeclaration9* pDecl)
+{
+  fsxCachedUsingDecl = true;
+  fsxCachedPositionT = false;
+  if(pDecl) {
+    D3DVERTEXELEMENT9 elems[MAXD3DDECLLENGTH+1];
+    UINT n=MAXD3DDECLLENGTH+1;
+    if(SUCCEEDED(pDecl->GetDeclaration(elems,&n))) {
+      for(UINT i=0;i<n;i++) {
+        if(elems[i].Stream==0xFF) break;
+        if(elems[i].Usage==D3DDECLUSAGE_POSITIONT) {
+          fsxCachedPositionT=true;
+          break;
+        }
+      }
+    }
+  }
+  return dev->SetVertexDeclaration(pDecl);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetVertexShader(IDirect3DVertexShader9* pShader)
+{
+  fsxCachedVertexShader = (pShader != NULL);
+  return dev->SetVertexShader(pShader);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetStreamSource(UINT StreamNumber,IDirect3DVertexBuffer9* pStreamData,UINT OffsetInBytes,UINT Stride)
+{
+  if(StreamNumber==0) fsxCachedStride0=Stride;
+  return dev->SetStreamSource(StreamNumber, OriginalFromNewVBuffer(pStreamData), OffsetInBytes, Stride);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture)
+{
+  if(Stage==0) {
+    fsxCachedTex0W=fsxCachedTex0H=0;
+    if(pTexture && pTexture->GetType()==D3DRTYPE_TEXTURE) {
+      IDirect3DTexture9 *tex=NULL;
+      if(SUCCEEDED(pTexture->QueryInterface(IID_IDirect3DTexture9,(void**)&tex)) && tex) {
+        D3DSURFACE_DESC td;
+        if(SUCCEEDED(tex->GetLevelDesc(0,&td))) {
+          fsxCachedTex0W=td.Width;
+          fsxCachedTex0H=td.Height;
+        }
+        tex->Release();
+      }
+    }
+  }
+  return dev->SetTexture(Stage, OriginalFromNewTexture(pTexture));
+}
+
+void IDirect3DDevice9SoftTH::diagFSXCachedDraw(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount)
+{
+  if(!newbb) return;
+
+  const bool interesting =
+      fsxCachedPositionT ||
+      fsxCachedPhysicalVSConstReg >= 0 ||
+      (primitiveCount >= 100 && fsxCachedVertexShader);
+  if(!interesting) return;
+
+  unsigned long long hash=1469598103934665603ULL;
+  #define MIX_CACHE(v) do { hash ^= (unsigned long long)(v); hash *= 1099511628211ULL; } while(0)
+  MIX_CACHE(primitiveType); MIX_CACHE(primitiveCount>=100);
+  MIX_CACHE(fsxCachedFVF); MIX_CACHE(fsxCachedUsingDecl); MIX_CACHE(fsxCachedPositionT);
+  MIX_CACHE(fsxCachedVertexShader); MIX_CACHE(fsxCachedStride0);
+  MIX_CACHE(fsxCachedTex0W); MIX_CACHE(fsxCachedTex0H);
+  MIX_CACHE(fsxCachedPhysicalVSConstReg+1); MIX_CACHE(fsxCachedPhysicalPSConstReg+1);
+  MIX_CACHE(fsxCachedViewport.Width); MIX_CACHE(fsxCachedViewport.Height);
+  #undef MIX_CACHE
+
+  static unsigned long long seen[80]={0};
+  static int seenCount=0;
+  for(int i=0;i<seenCount;i++) if(seen[i]==hash) return;
+  if(seenCount>=80) return;
+  seen[seenCount++]=hash;
+
+  dbg("DIAG CACHE DRAW %s pt=%d prim=%d vp=%dx%d VS=%d FVF=0x%08X decl=%d posT=%d stride=%d tex0=%dx%d physVS=c%d physPS=c%d",
+      kind,primitiveType,primitiveCount,
+      fsxCachedViewport.Width,fsxCachedViewport.Height,
+      fsxCachedVertexShader?1:0,fsxCachedFVF,fsxCachedUsingDecl?1:0,
+      fsxCachedPositionT?1:0,fsxCachedStride0,
+      fsxCachedTex0W,fsxCachedTex0H,
+      fsxCachedPhysicalVSConstReg,fsxCachedPhysicalPSConstReg);
 }
 
 void IDirect3DDevice9SoftTH::diagFSXDrawState(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount, UINT strideHint)
@@ -2015,42 +2164,34 @@ bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UIN
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount)
 {
   repairFSXVirtualViewportForDraw();
+  diagFSXCachedDraw("DP",PrimitiveType,PrimitiveCount);
   return dev->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount)
 {
   repairFSXVirtualViewportForDraw();
+  diagFSXCachedDraw("DIP",PrimitiveType,primCount);
   return dev->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
-
-  BYTE *scaled = NULL;
-  const UINT vertexCount = fsxUPVertexCount(PrimitiveType, PrimitiveCount);
-  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData, vertexCount, VertexStreamZeroStride, &scaled)) {
-    HRESULT ret = dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, scaled, VertexStreamZeroStride);
-    delete[] scaled;
-    return ret;
-  }
-
+  const UINT oldStride=fsxCachedStride0;
+  fsxCachedStride0=VertexStreamZeroStride;
+  diagFSXCachedDraw("DPUP",PrimitiveType,PrimitiveCount);
+  fsxCachedStride0=oldStride;
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride)
 {
   repairFSXVirtualViewportForDraw();
-
-  BYTE *scaled = NULL;
-  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData, NumVertices, VertexStreamZeroStride, &scaled)) {
-    HRESULT ret = dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
-                                               pIndexData, IndexDataFormat, scaled, VertexStreamZeroStride);
-    delete[] scaled;
-    return ret;
-  }
-
+  const UINT oldStride=fsxCachedStride0;
+  fsxCachedStride0=VertexStreamZeroStride;
+  diagFSXCachedDraw("DIPUP",PrimitiveType,PrimitiveCount);
+  fsxCachedStride0=oldStride;
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
                                      pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
