@@ -1591,6 +1591,24 @@ HRESULT IDirect3DDevice9SoftTH::GetDisplayMode(UINT iSwapChain, D3DDISPLAYMODE* 
   return ret;
 }
 
+static bool fsxWritableMemory(const void *p, size_t bytes)
+{
+  if(!p || bytes == 0) return false;
+  MEMORY_BASIC_INFORMATION mbi;
+  if(VirtualQuery(p, &mbi, sizeof(mbi)) != sizeof(mbi))
+    return false;
+  if(mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_GUARD) || (mbi.Protect & PAGE_NOACCESS))
+    return false;
+  const DWORD prot = mbi.Protect & 0xff;
+  const bool writable =
+      prot == PAGE_READWRITE || prot == PAGE_WRITECOPY ||
+      prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
+  if(!writable) return false;
+  const BYTE *end = (const BYTE*)p + bytes;
+  const BYTE *regionEnd = (const BYTE*)mbi.BaseAddress + mbi.RegionSize;
+  return end <= regionEnd;
+}
+
 // Keep a full-backbuffer viewport virtual while rendering to SoftTH's
 // virtual render target.  FSX can re-apply the physical 1920x1080 viewport
 // after device reset; map only that exact full physical viewport to the
@@ -1651,6 +1669,27 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
       lastInW=pViewport->Width; lastInH=pViewport->Height;
     }
     fsxCachedViewport = vp;
+
+    // FSX generates large parts of the scene as pre-transformed POSITIONT
+    // vertices immediately after this call. v3.34-v3.36 proved those vertices
+    // are still calculated from the native 1920x1080 viewport even though the
+    // underlying D3D viewport is already virtual.  For the exact full-screen
+    // viewport only, propagate the mapped size back into FSX's writable input
+    // structure so code that reuses the same viewport object sees 5760x2160.
+    if(pViewport->X == 0 && pViewport->Y == 0 &&
+       pViewport->Width == bbDesc.Width && pViewport->Height == bbDesc.Height &&
+       fsxWritableMemory(pViewport, sizeof(D3DVIEWPORT9)))
+    {
+      D3DVIEWPORT9 *callerVp = const_cast<D3DVIEWPORT9*>(pViewport);
+      *callerVp = vp;
+      static bool loggedCallerVp = false;
+      if(!loggedCallerVp) {
+        dbg("FSX viewport caller memory promoted: %dx%d -> %dx%d",
+            bbDesc.Width, bbDesc.Height, vp.Width, vp.Height);
+        loggedCallerVp = true;
+      }
+    }
+
     return dev->SetViewport(&vp);
   }
 
@@ -2283,14 +2322,6 @@ HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,U
   diagFSXPositionTUP("DPUP",PrimitiveType,PrimitiveCount,vertexCount,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DPUP",PrimitiveType,PrimitiveCount);
 
-  BYTE *scaled=NULL;
-  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData,vertexCount,VertexStreamZeroStride,&scaled)) {
-    HRESULT ret=dev->DrawPrimitiveUP(PrimitiveType,PrimitiveCount,scaled,VertexStreamZeroStride);
-    delete[] scaled;
-    fsxCachedStride0=oldStride;
-    return ret;
-  }
-
   fsxCachedStride0=oldStride;
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
@@ -2302,15 +2333,6 @@ HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE Primitiv
   fsxCachedStride0=VertexStreamZeroStride;
   diagFSXPositionTUP("DIPUP",PrimitiveType,PrimitiveCount,NumVertices,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DIPUP",PrimitiveType,PrimitiveCount);
-
-  BYTE *scaled=NULL;
-  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData,NumVertices,VertexStreamZeroStride,&scaled)) {
-    HRESULT ret=dev->DrawIndexedPrimitiveUP(PrimitiveType,MinVertexIndex,NumVertices,PrimitiveCount,
-                                             pIndexData,IndexDataFormat,scaled,VertexStreamZeroStride);
-    delete[] scaled;
-    fsxCachedStride0=oldStride;
-    return ret;
-  }
 
   fsxCachedStride0=oldStride;
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
