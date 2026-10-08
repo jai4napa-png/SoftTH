@@ -1,55 +1,91 @@
-SoftTH
-======
+# SoftTH
 
-Software TripleHead originally by Keijo "Kegetys" Ruotsalainen, http://www.kegetys.fi.
+Software TripleHead / multihead rendering originally by Keijo "Kegetys" Ruotsalainen and later maintained by C. Justin Ratcliff / SoftTH.
 
-Updated and maintained by born2beflyin, http://www.softth.net
+Licensed under the **GNU GPL v3**. See [LICENSE](LICENSE).
 
-Licensed under GNU GPL v3 (see LICENSE).
+> **Modified version notice:** the `fsx-win11` branch contains substantial changes made in 2026 for Microsoft Flight Simulator X: Steam Edition (FSX-SE) on Windows 11. This is an experimental community fork and is not an official release from the original SoftTH authors.
 
-SoftTH is an open source software triplehead/multihead gaming solution for the PC. It performs the same job as AMD Eyefinity, nVidia Surround, and Matrox2go, only it supports any number and/or combination of non-identical or identical screens at any resolution. No special hardware is needed. You simply need your monitors attached to PCI Express video cards. Only one card does all the rendering work, so the secondary+ card(s) can be low end; only Direct3D support is required.
+## FSX-SE / Windows 11 public beta
 
-SoftTH works by rendering the whole scene on one display adapter, which then gets split into multiple parts to be displayed on each monitor. While it is technically possible to use it on an AGP/PCI card, only PCI Express has the required bandwidth to get good framerates.
+**Current beta: v3.42 x86**
 
-======
+This branch restores a practical SoftTH multi-monitor path for **FSX-SE (32-bit Direct3D 9)** on modern Windows 11 systems, including mixed-size and non-rectangular monitor layouts.
 
-(Updated Dec. 2015)
+The key FSX-specific fix is render-only monitor virtualization for FSX's `g2d.dll`: FSX can build cockpit/world screen-space geometry against the full SoftTH virtual canvas while ordinary Windows dialogs and work-area placement continue to use physical monitor geometry.
 
-SoftTH contains incomplete code for Direct3D 10 and 11 and has some placeholders for Direct3D 12. D3D10 and D3D11 work for some special cases, but proxy DLLs for D3D10 and 11 still need to be completed and debugged.
+### Tested configuration
 
-======
+The development configuration was tested with:
 
-(As of Dec. 2015)
+- FSX: Steam Edition, 32-bit D3D9
+- Windows 11
+- Intel graphics
+- four 1920×1080 displays in a mixed T-style layout
+- virtual render target: 5760×2160
+- mixed per-head crops, including a scaled primary/head crop
 
-Compiles with Code::Blocks 13.12: http://www.codeblocks.org using the Microsoft VC++ 2013 Express compiler.
+Other monitor layouts should work in principle but require their own `sourceRect` calibration.
 
-Requires:
+### What v3.42 includes
 
-(Static libs included with SoftTH)
-- distorm disassembler library: http://code.google.com/p/distorm/ (Currently linking to distorm v3.3)
-- zlib compression library: http://www.zlib.net/ (Currently linking to v1.2.7)
+- FSX fullscreen multihead rendering on a virtual SoftTH canvas
+- FSX `g2d.dll` monitor-size virtualization so screen-space geometry uses the virtual resolution
+- a composited/windowed physical primary D3D device while FSX remains logically fullscreen
+- improved Alt-Tab / Task Manager / FSX-dialog visibility
+- protection against treating standard FSX `#32770` dialogs as render children
+- virtualized FSX window/client geometry only while the fullscreen render path needs it
+- optional calibration grid, head borders and labels
+- Windows 11 x86 GitHub Actions build
 
-(NOT included with SoftTH)
-- (For DX9) DirectX SDK June 2010: http://www.microsoft.com/en-us/download/details.aspx?id=6812
-- Windows SDK v8.1: https://msdn.microsoft.com/en-us/windows/desktop/bg162891.aspx
+### Beta limitations
 
-Modify the project include/lib search directories accordingly.
+- **FSX-SE x86 is the supported target.** This branch is not yet validated as a general replacement for other D3D9 games.
+- x64 is not currently built/tested by the FSX workflow.
+- monitor `sourceRect` values are layout-specific and must be calibrated.
+- `zoomOutMultiplier` is a legacy fixed-function projection override. FSX's main world view does not consistently use that path, so values above 1.0 may have no visible effect.
+- for wide FSX views, use FSX's own view controls and normally set `WideViewAspect=True` in the FSX configuration.
+- UI/dialog behavior is much improved but remains part of the beta test surface.
 
-If you get a link error about "failure during conversion to COFF," it may be related to the issue here:
-http://stackoverflow.com/questions/10888391/error-link-fatal-error-lnk1123-failure-during-conversion-to-coff-file-inval
+## Installation: FSX-SE
 
-If a project target isn't yet in the list, i.e. "Release DX11 Win x64", it's in the works.  It may take a while.
+See [docs/FSX-SE-Win11.md](docs/FSX-SE-Win11.md) for the complete setup and calibration procedure.
 
-======
+The short version:
 
-From Kegetys on December 09, 2012 - the initial source code release: (http://www.kegetys.fi/forum/index.php?topic=3176.0)
+1. Build/download the **x86** FSX-Win11 package.
+2. Copy `d3d9.dll`, `D3DX9_43.dll`, and `D3DCompiler_43.dll` into the FSX root directory, normally:
+   `C:\Program Files (x86)\Steam\steamapps\common\FSX`
+3. Create `config.SoftTHconfig` in that same directory.
+4. Select the SoftTH device and a fullscreen resolution matching `renderResolution` inside FSX.
+5. Calibrate every head's `sourceRect`.
 
-"I wanted to write some notes of the source but I havent found the time to do it so it is here in a bit raw form. Its a VS 2005 project, see readme for requirements. The configurations are a bit broken, you need to select the matching configuration for the architecture (Release for Win32 and Release x64 for x64).
+An example configuration is provided at [examples/config.SoftTHconfig.example](examples/config.SoftTHconfig.example). It is an example only; device IDs and crop rectangles are not universal.
 
-It is looking quite likely I wont be developing SoftTH much further personally at least in major ways, so hopefully the source will find a new home. Feel free to upload it to github or similar services for easier collaboration.
+## Building the FSX branch
 
-As for the reasons why development has been almost at a halt is mostly lack of time and interest - It has been over 6 years since the start of the project now and the "I wonder if it would be possible" has been answered. SoftTH's concept is proven but supporting it is quite labor intensive: New games come out which do unexpected things, and new Direct3D versions come and go. Also since I have done professional software development for a few years now I tend to want to find something else to do on my free time. Trying new experimental things and making something nobody else has done before is still as interesting as ever but I think SoftTH is mostly past that stage.
+The repository contains a Windows GitHub Actions workflow:
 
-For a bit of history the birth of SoftTH happend in the Live for Speed forums here and here. The Matrox Triplehead2go gave me the original idea of rendering on a single card and copying the side monitor images to other video cards as I thought it should be possible to do what the th2go did with software. Back then I only had an AGP+PCI system and I knew from the numbers that its not going to work - PCI Express would be needed but motherboards with two PCI Express slots were very expensive back then. Regardless I decided to skimp on other components when doing a system upgrade and got myself a dual slot motherboard so I could test the concept. Turns out it worked quite well so the money was well spent.
+`.github/workflows/build-fsx-win11.yml`
 
-I originally kind of hoped that major video card manufacturers would pick the triple monitor feature up and implement it without needing the likes of SoftTH. To some extent it has happened but still not well enough in my opinion, very obvious and easy features are still missing. Hopefully they'll get there eventually. :)"
+It builds:
+
+- solution: `make\SoftTH-FSX-Win11.sln`
+- configuration: `Release`
+- platform: `Win32`
+
+The public artifact is intentionally packaged without PDB/debug-symbol files.
+
+## License and source availability
+
+SoftTH is GPLv3. If you distribute modified binaries, the corresponding source and license terms must remain available to recipients. This repository/branch is intended to provide that corresponding source for the FSX-SE Windows 11 build.
+
+The original SoftTH copyright and GPL notices are preserved in the source.
+
+## Original SoftTH project background
+
+SoftTH is an open-source software multihead gaming solution. It renders the full scene on one display adapter, then splits/copies portions of that render to multiple output displays. It was designed to support combinations of monitors and resolutions without requiring NVIDIA Surround, AMD Eyefinity, or Matrox TripleHead2Go.
+
+The original project was created by Keijo "Kegetys" Ruotsalainen. Later SoftTH development/maintenance was carried forward by C. Justin Ratcliff / SoftTH. The repository still contains older Direct3D 10/11 work and placeholders that are outside the scope of this FSX-SE beta.
+
+For historical project details, see the repository history and source comments.
