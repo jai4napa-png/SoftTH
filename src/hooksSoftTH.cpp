@@ -665,73 +665,71 @@ FARPROC WINAPI NewGetProcAddress(HMODULE hModule, LPCSTR lpProcName)
 }
 
 BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
-	typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
-	const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoW");
-
-	dbg("NewGetMonitorInfoW");
+  typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
+  const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoW");
+  if(!lpmi) return FALSE;
 
   MONITORINFOEX tmp;
+  ZeroMemory(&tmp, sizeof(tmp));
   tmp.cbSize = lpmi->cbSize;
   BOOL ret = origFunc(hMonitor, &tmp);
 
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive && ret) {
-    if(tmp.dwFlags & MONITORINFOF_PRIMARY) {
-      // Primary monitor - pretend it spans all monitors
-      dbg("NewGetMonitorInfoW - Pretending primary monitor %08X spans all monitors for: %s", hMonitor, getModuleName(srcMod));
-      memcpy(lpmi, &tmp, lpmi->cbSize);
-
-      lpmi->rcWork.left = lpmi->rcMonitor.left = 0;
-      lpmi->rcWork.top  = lpmi->rcMonitor.top = 0;
-      lpmi->rcWork.right  = lpmi->rcMonitor.right  = config.main.renderResolution.x;
-      lpmi->rcWork.bottom = lpmi->rcMonitor.bottom = config.main.renderResolution.y;
-
-      return ret;
-    } else {
-      // Non-primary monitor - pretend it does not exist
-		  dbg("NewGetMonitorInfoW - Hid monitor %08X from: %s", hMonitor, getModuleName(srcMod));
-		  return FALSE;
-    }
-  } else {
+  if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    return ret;
+    if(isHooked(srcMod) && SoftTHActive && (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
+      const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
+      const LONG oh = tmp.rcMonitor.bottom - tmp.rcMonitor.top;
+      lpmi->rcMonitor.left = 0;
+      lpmi->rcMonitor.top = 0;
+      lpmi->rcMonitor.right = config.main.renderResolution.x;
+      lpmi->rcMonitor.bottom = config.main.renderResolution.y;
+      lpmi->rcWork = lpmi->rcMonitor;
+
+      static bool logged=false;
+      if(!logged) {
+        dbg("FSX GetMonitorInfoW virtualized primary: %ldx%ld -> %dx%d caller=%s",
+            ow,oh,config.main.renderResolution.x,config.main.renderResolution.y,
+            getModuleName(srcMod));
+        logged=true;
+      }
+    }
   }
-  return FALSE;
+  return ret;
 }
 
 BOOL WINAPI NewGetMonitorInfoA(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
-	typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
-	const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoA");
-
-	dbg("NewGetMonitorInfoA");
+  typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
+  const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoA");
+  if(!lpmi) return FALSE;
 
   MONITORINFOEX tmp;
+  ZeroMemory(&tmp, sizeof(tmp));
   tmp.cbSize = lpmi->cbSize;
   BOOL ret = origFunc(hMonitor, &tmp);
 
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive && ret) {
-    if(tmp.dwFlags & MONITORINFOF_PRIMARY) {
-      // Primary monitor - pretend it spans all monitors
-      dbg("NewGetMonitorInfoA - Pretending primary monitor %08X spans all monitors for: %s", hMonitor, getModuleName(srcMod));
-      memcpy(lpmi, &tmp, lpmi->cbSize);
-
-      lpmi->rcWork.left = lpmi->rcMonitor.left = 0;
-      lpmi->rcWork.top  = lpmi->rcMonitor.top = 0;
-      lpmi->rcWork.right  = lpmi->rcMonitor.right  = config.main.renderResolution.x;
-      lpmi->rcWork.bottom = lpmi->rcMonitor.bottom = config.main.renderResolution.y;
-
-      return ret;
-    } else {
-      // Non-primary monitor - pretend it does not exist
-		  dbg("NewGetMonitorInfoA - Hid monitor %08X from: %s", hMonitor, getModuleName(srcMod));
-		  return FALSE;
-    }
-  } else {
+  if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    return ret;
+    if(isHooked(srcMod) && SoftTHActive && (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
+      const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
+      const LONG oh = tmp.rcMonitor.bottom - tmp.rcMonitor.top;
+      lpmi->rcMonitor.left = 0;
+      lpmi->rcMonitor.top = 0;
+      lpmi->rcMonitor.right = config.main.renderResolution.x;
+      lpmi->rcMonitor.bottom = config.main.renderResolution.y;
+      lpmi->rcWork = lpmi->rcMonitor;
+
+      static bool logged=false;
+      if(!logged) {
+        dbg("FSX GetMonitorInfoA virtualized primary: %ldx%ld -> %dx%d caller=%s",
+            ow,oh,config.main.renderResolution.x,config.main.renderResolution.y,
+            getModuleName(srcMod));
+        logged=true;
+      }
+    }
   }
-  return FALSE;
+  return ret;
 }
 
 static MONITORENUMPROC MonitorEnumProcReal;
@@ -886,8 +884,8 @@ GHOOK SoftTHHooks[] = {
   //HOOK(NewMapWindowPoints, user32.dll, MapWindowPoints)
 
   // GDI
-  //HOOK(NewGetMonitorInfoW, user32.dll, GetMonitorInfoW)
-  //HOOK(NewGetMonitorInfoA, user32.dll, GetMonitorInfoA)
+  HOOK(NewGetMonitorInfoW, user32.dll, GetMonitorInfoW)
+  HOOK(NewGetMonitorInfoA, user32.dll, GetMonitorInfoA)
   HOOK(NewEnumDisplayDevicesW, user32.dll, EnumDisplayDevicesW)
   HOOK(NewEnumDisplayDevicesA, user32.dll, EnumDisplayDevicesA)
   HOOK(NewEnumDisplaySettingsW, user32.dll, EnumDisplaySettingsW)
