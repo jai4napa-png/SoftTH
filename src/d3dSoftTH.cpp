@@ -2189,124 +2189,74 @@ void IDirect3DDevice9SoftTH::diagFSXPositionTUP(const char *kind, D3DPRIMITIVETY
 bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UINT vertexCount, UINT stride, BYTE **scaledCopy)
 {
   if(scaledCopy) *scaledCopy = NULL;
-  if(!scaledCopy || !src || !newbb || vertexCount < 3 || vertexCount > 64 ||
-     stride < 8 || stride > 256 ||
+  if(!scaledCopy || !src || !newbb || !fsxCachedPositionT ||
+     vertexCount < 1 || vertexCount > 8192 ||
+     stride < fsxCachedPositionTOffset + sizeof(float)*2 || stride > 256 ||
      bbDesc.Width == 0 || bbDesc.Height == 0 ||
      ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
     return false;
 
-  // Only touch draws going directly to SoftTH's virtual backbuffer.
-  IDirect3DSurface9 *rt = NULL;
-  if(FAILED(dev->GetRenderTarget(0, &rt)) || !rt)
-    return false;
-  const bool virtualTarget = (rt == newbb);
-  rt->Release();
-  if(!virtualTarget)
-    return false;
-
-  // Determine where POSITIONT / XYZRHW lives in each vertex.
-  UINT posOffset = 0;
-  bool positionT = false;
-
-  DWORD fvf = 0;
-  if(SUCCEEDED(dev->GetFVF(&fvf)) &&
-     (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW)
-  {
-    positionT = true;
-    posOffset = 0;
-  }
-  else
-  {
-    IDirect3DVertexDeclaration9 *decl = NULL;
-    if(SUCCEEDED(dev->GetVertexDeclaration(&decl)) && decl) {
-      D3DVERTEXELEMENT9 elems[MAXD3DDECLLENGTH+1];
-      UINT n = MAXD3DDECLLENGTH+1;
-      if(SUCCEEDED(decl->GetDeclaration(elems, &n))) {
-        for(UINT i=0; i<n; i++) {
-          if(elems[i].Stream == 0xFF) break;
-          if(elems[i].Stream == 0 &&
-             elems[i].Usage == D3DDECLUSAGE_POSITIONT &&
-             elems[i].Type == D3DDECLTYPE_FLOAT4)
-          {
-            positionT = true;
-            posOffset = elems[i].Offset;
-            break;
-          }
-        }
-      }
-      decl->Release();
-    }
-  }
-
-  if(!positionT || posOffset + sizeof(float)*2 > stride)
+  // v3.35 proved FSX does not call GetViewport before generating these
+  // POSITIONT vertices.  It submits native 1920x1080 screen coordinates even
+  // after SetViewport has been mapped to the 5760x2160 virtual target.
+  //
+  // Do not query D3D state here (v3.29 showed that getter-heavy draw hooks can
+  // stall FSX).  The cached viewport is only widened by our SetViewport mapping
+  // on the virtual backbuffer, so use that as the cheap target/scope guard.
+  if(fsxCachedViewport.Width <= bbDesc.Width &&
+     fsxCachedViewport.Height <= bbDesc.Height)
     return false;
 
-  // We are looking for the exact failure seen in the SoftTH screenshot:
-  // a full-screen quad whose screen-space coordinates still span the native
-  // 1920x1080 primary head even though the render target is 5760x2160.
-  float minX=1.0e30f, minY=1.0e30f, maxX=-1.0e30f, maxY=-1.0e30f;
   const BYTE *bytes = (const BYTE*)src;
-  for(UINT i=0; i<vertexCount; i++) {
-    const float *p = (const float*)(bytes + i*stride + posOffset);
+  const UINT off = fsxCachedPositionTOffset;
+  float minX=1.0e30f,minY=1.0e30f,maxX=-1.0e30f,maxY=-1.0e30f;
+
+  for(UINT i=0;i<vertexCount;i++) {
+    const float *p=(const float*)(bytes + (size_t)i*stride + off);
     const float x=p[0], y=p[1];
-    if(x < minX) minX=x; if(x > maxX) maxX=x;
-    if(y < minY) minY=y; if(y > maxY) maxY=y;
+    if(!_finite(x) || !_finite(y))
+      return false;
+    if(x<minX) minX=x; if(x>maxX) maxX=x;
+    if(y<minY) minY=y; if(y>maxY) maxY=y;
   }
 
   const float pw=(float)bbDesc.Width, ph=(float)bbDesc.Height;
+
+  // Only convert the native FSX screen-space coordinate domain.  Leave any
+  // already-virtual or intentionally offscreen POSITIONT geometry alone.
   if(minX < -4.0f || minY < -4.0f ||
-     maxX > pw+4.0f || maxY > ph+4.0f ||
-     (maxX-minX) < pw*0.80f || (maxY-minY) < ph*0.80f)
+     maxX > pw+4.0f || maxY > ph+4.0f)
     return false;
 
-  // Strong safety guard: only scale a physical-size screen quad when it is
-  // sampling a virtual-size texture.  This targets FSX's final scene
-  // composition pass without stretching ordinary 2D dialogs or gauges.
-  UINT texW=0, texH=0;
-  IDirect3DBaseTexture9 *baseTex = NULL;
-  if(SUCCEEDED(dev->GetTexture(0, &baseTex)) && baseTex) {
-    if(baseTex->GetType() == D3DRTYPE_TEXTURE) {
-      IDirect3DTexture9 *tex = NULL;
-      if(SUCCEEDED(baseTex->QueryInterface(IID_IDirect3DTexture9, (void**)&tex)) && tex) {
-        D3DSURFACE_DESC td;
-        if(SUCCEEDED(tex->GetLevelDesc(0, &td))) {
-          texW=td.Width; texH=td.Height;
-        }
-        tex->Release();
-      }
-    }
-    baseTex->Release();
-  }
-  if(texW != (UINT)wantedX || texH != (UINT)wantedY)
-    return false;
+  const size_t total=(size_t)vertexCount*(size_t)stride;
+  BYTE *copy=new BYTE[total];
+  memcpy(copy,src,total);
 
-  const size_t total = (size_t)vertexCount * (size_t)stride;
-  BYTE *copy = new BYTE[total];
-  memcpy(copy, src, total);
+  const float sx=(float)wantedX/pw;   // 3.0 for 1920 -> 5760
+  const float sy=(float)wantedY/ph;   // 2.0 for 1080 -> 2160
+  const bool halfPixel=(minX < -0.25f || minY < -0.25f);
 
-  const float sx=(float)wantedX/pw;
-  const float sy=(float)wantedY/ph;
-  const bool halfPixel = (minX < -0.25f || minY < -0.25f);
-
-  for(UINT i=0; i<vertexCount; i++) {
-    float *p = (float*)(copy + i*stride + posOffset);
+  for(UINT i=0;i<vertexCount;i++) {
+    float *p=(float*)(copy + (size_t)i*stride + off);
     if(halfPixel) {
-      p[0] = (p[0] + 0.5f) * sx - 0.5f;
-      p[1] = (p[1] + 0.5f) * sy - 0.5f;
+      p[0]=(p[0]+0.5f)*sx-0.5f;
+      p[1]=(p[1]+0.5f)*sy-0.5f;
     } else {
-      p[0] *= sx;
-      p[1] *= sy;
+      p[0]*=sx;
+      p[1]*=sy;
     }
   }
 
-  static bool logged = false;
-  if(!logged) {
-    dbg("FSX screen-space scene composite: scaled POSITIONT quad %.1f,%.1f-%.1f,%.1f -> virtual %dx%d (texture %dx%d)",
-        minX,minY,maxX,maxY,wantedX,wantedY,texW,texH);
-    logged = true;
+  static int logCount=0;
+  if(logCount<24) {
+    dbg("FSX POSITIONT scale: native range=(%.3f,%.3f)-(%.3f,%.3f) x%.3f,y%.3f -> virtual %dx%d vp=%dx%d tex0=%dx%d",
+        minX,minY,maxX,maxY,sx,sy,wantedX,wantedY,
+        fsxCachedViewport.Width,fsxCachedViewport.Height,
+        fsxCachedTex0W,fsxCachedTex0H);
+    logCount++;
   }
 
-  *scaledCopy = copy;
+  *scaledCopy=copy;
   return true;
 }
 
@@ -2332,6 +2282,15 @@ HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,U
   const UINT vertexCount=fsxUPVertexCount(PrimitiveType,PrimitiveCount);
   diagFSXPositionTUP("DPUP",PrimitiveType,PrimitiveCount,vertexCount,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DPUP",PrimitiveType,PrimitiveCount);
+
+  BYTE *scaled=NULL;
+  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData,vertexCount,VertexStreamZeroStride,&scaled)) {
+    HRESULT ret=dev->DrawPrimitiveUP(PrimitiveType,PrimitiveCount,scaled,VertexStreamZeroStride);
+    delete[] scaled;
+    fsxCachedStride0=oldStride;
+    return ret;
+  }
+
   fsxCachedStride0=oldStride;
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
@@ -2343,6 +2302,16 @@ HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE Primitiv
   fsxCachedStride0=VertexStreamZeroStride;
   diagFSXPositionTUP("DIPUP",PrimitiveType,PrimitiveCount,NumVertices,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DIPUP",PrimitiveType,PrimitiveCount);
+
+  BYTE *scaled=NULL;
+  if(scaleFSXPhysicalScreenVertices(pVertexStreamZeroData,NumVertices,VertexStreamZeroStride,&scaled)) {
+    HRESULT ret=dev->DrawIndexedPrimitiveUP(PrimitiveType,MinVertexIndex,NumVertices,PrimitiveCount,
+                                             pIndexData,IndexDataFormat,scaled,VertexStreamZeroStride);
+    delete[] scaled;
+    fsxCachedStride0=oldStride;
+    return ret;
+  }
+
   fsxCachedStride0=oldStride;
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
                                      pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
