@@ -296,13 +296,28 @@ static bool getTrueClientRect(HWND win, RECT *r)
     else
       h = config.getHead(i);
     if(h->hwnd && h->hwnd == win) {
-      // No destRect means the entire physical head is visible.
+      // A null destRect means StretchRect targets the entire physical head.
+      // The legacy input mapper had this test reversed, returning a 0x0
+      // client rectangle whenever destRect was omitted (the normal config).
+      // That made mouse -> virtual coordinate conversion divide by zero and
+      // prevented FSX virtual-cockpit mouse hit testing from lining up.
       if(!isNullRect(&h->destRect)) {
+        *r = h->destRect;
+      } else {
         r->left = r->top = 0;
         r->right = h->screenMode.x;
         r->bottom = h->screenMode.y;
-      } else {
-        *r = h->destRect;
+      }
+
+      // Defensive fallback for incomplete configs/device initialization.
+      if(r->right <= r->left || r->bottom <= r->top) {
+        RECT cr = {0,0,0,0};
+        if(GetClientRect(win, &cr) &&
+           cr.right > cr.left && cr.bottom > cr.top) {
+          *r = cr;
+        } else {
+          return false;
+        }
       }
       return true;
     }
@@ -341,7 +356,8 @@ bool inputMapVirtualToDesktop(POINT *in, POINT *out)
       float yr = (in->y - sr->top)  / (float)sh;
 
       RECT lpr;
-      getTrueClientRect(h->hwnd, &lpr);
+      if(!getTrueClientRect(h->hwnd, &lpr))
+        continue;
       POINT pp = {(int)floor(((float)(lpr.right-lpr.left)*xr)+0.5), (int)floor(((float)(lpr.bottom-lpr.top)*yr)+0.5)};
       pp.x += lpr.left;
       pp.y += lpr.top;
@@ -364,9 +380,14 @@ bool inputMapClientToVirtual(HWND win, POINT *in, POINT *out)
     return false;
 
   RECT lpr;
-  getTrueClientRect(win, &lpr);
-  float xr = (float)in->x / (float) (lpr.right-lpr.left);
-  float yr = (float)in->y / (float) (lpr.bottom-lpr.top);
+  if(!getTrueClientRect(win, &lpr))
+    return false;
+  const int cw = lpr.right-lpr.left;
+  const int ch = lpr.bottom-lpr.top;
+  if(cw <= 0 || ch <= 0)
+    return false;
+  float xr = (float)in->x / (float)cw;
+  float yr = (float)in->y / (float)ch;
 
   xr -= lpr.left / (float) (lpr.right-lpr.left);
   yr -= lpr.top / (float) (lpr.bottom-lpr.top);
