@@ -152,20 +152,11 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
       }
 
       POINT vp = {msg->pt.x, msg->pt.y};
-      bool mapped = false;
-      HWND winCursor = WindowFromPoint(msg->pt);
-      if(winCursor != win) {
-        // Drag event is going from primary monitor to secondary
-        POINT op = {msg->pt.x, msg->pt.y};
-        ScreenToClient(winCursor, &op);
-        mapped = inputMapClientToVirtual(winCursor, &op, &vp);
-      } else {
-        // MSG.pt is in desktop screen coordinates. Convert to the real
-        // primary client coordinates before mapping to the virtual backbuffer.
-        POINT op = {msg->pt.x, msg->pt.y};
-        ScreenToClient(win, &op);
-        mapped = inputMapClientToVirtual(win, &op, &vp);
-      }
+      // MSG.pt is already in desktop screen coordinates. Map it directly
+      // through the physical SoftTH head rectangle. Do not use WindowFromPoint:
+      // FSX child/render windows can sit above the device window and caused
+      // the old mapper to fail before virtual-cockpit hit testing.
+      bool mapped = inputMapScreenToVirtual(&msg->pt, &vp);
       if(!mapped) {
         // Do not eat FSX mouse input if a coordinate cannot be mapped. Passing
         // the original message through is safer than converting it to WM_NULL
@@ -368,6 +359,68 @@ bool inputMapVirtualToDesktop(POINT *in, POINT *out)
       }
     }
   }
+  return false;
+}
+
+// Translates desktop screen coordinates directly to virtual backbuffer coordinates.
+// This avoids WindowFromPoint()/child-window ambiguity in FSX: the virtual
+// cockpit can be covered by an FSX child/render window that is not itself a
+// registered SoftTH head, even though the point is visibly on a SoftTH head.
+bool inputMapScreenToVirtual(POINT *in, POINT *out)
+{
+  if(!in || !out)
+    return false;
+
+  RECT fullbb = {0, 0, config.main.renderResolution.x, config.main.renderResolution.y};
+  int numDevs = config.getNumAdditionalHeads();
+
+  for(int i=-1;i<numDevs;i++) {
+    HEAD *h = i==-1 ? config.getPrimaryHead() : config.getHead(i);
+    if(!h || !h->hwnd)
+      continue;
+
+    RECT lpr;
+    if(!getTrueClientRect(h->hwnd, &lpr))
+      continue;
+
+    POINT tl = {lpr.left, lpr.top};
+    POINT br = {lpr.right, lpr.bottom};
+    if(!ClientToScreen(h->hwnd, &tl) || !ClientToScreen(h->hwnd, &br))
+      continue;
+
+    RECT screenRect = {tl.x, tl.y, br.x, br.y};
+    if(!PtInRect(&screenRect, *in))
+      continue;
+
+    const int pw = screenRect.right-screenRect.left;
+    const int ph = screenRect.bottom-screenRect.top;
+    if(pw <= 0 || ph <= 0)
+      continue;
+
+    RECT *sr = (SoftTHActiveSquashed && *SoftTHActiveSquashed) ? &fullbb : &h->sourceRect;
+    const int sw = sr->right-sr->left;
+    const int sh = sr->bottom-sr->top;
+    if(sw <= 0 || sh <= 0)
+      continue;
+
+    const float xr = (in->x-screenRect.left) / (float)pw;
+    const float yr = (in->y-screenRect.top) / (float)ph;
+
+    out->x = (int)floor(sr->left + sw*xr + 0.5f);
+    out->y = (int)floor(sr->top  + sh*yr + 0.5f);
+
+    static int logged = 0;
+    if(logged < 12) {
+      dbg("FSX mouse screen->virtual: desktop=%d,%d head=%d rect=%d,%d-%d,%d source=%d,%d-%d,%d virtual=%d,%d",
+          in->x,in->y,i,
+          screenRect.left,screenRect.top,screenRect.right,screenRect.bottom,
+          sr->left,sr->top,sr->right,sr->bottom,
+          out->x,out->y);
+      logged++;
+    }
+    return true;
+  }
+
   return false;
 }
 
