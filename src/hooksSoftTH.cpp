@@ -664,6 +664,17 @@ FARPROC WINAPI NewGetProcAddress(HMODULE hModule, LPCSTR lpProcName)
   return origFunc(hModule, lpProcName);
 }
 
+static bool fsxMonitorVirtualizationCaller(HMODULE mod)
+{
+  if(!mod) return false;
+  char path[MAX_PATH]={0};
+  if(!GetModuleFileNameA(mod,path,MAX_PATH))
+    return false;
+  const char *base=strrchr(path,'\\');
+  base=base ? base+1 : path;
+  return _stricmp(base,"g2d.dll")==0;
+}
+
 BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
   const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoW");
@@ -677,18 +688,23 @@ BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   SOURCE_MODULE(srcMod);
   if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    if(isHooked(srcMod) && SoftTHActive && (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
+    if(isHooked(srcMod) && SoftTHActive &&
+       fsxMonitorVirtualizationCaller(srcMod) &&
+       (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
       const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
       const LONG oh = tmp.rcMonitor.bottom - tmp.rcMonitor.top;
+
+      // g2d.dll uses rcMonitor to build FSX's screen-space/cockpit geometry.
+      // Keep rcWork untouched/physical so ordinary window and dialog placement
+      // does not treat the 5760x2160 virtual render canvas as a Windows desktop.
       lpmi->rcMonitor.left = 0;
       lpmi->rcMonitor.top = 0;
       lpmi->rcMonitor.right = config.main.renderResolution.x;
       lpmi->rcMonitor.bottom = config.main.renderResolution.y;
-      lpmi->rcWork = lpmi->rcMonitor;
 
       static bool logged=false;
       if(!logged) {
-        dbg("FSX GetMonitorInfoW virtualized primary: %ldx%ld -> %dx%d caller=%s",
+        dbg("FSX GetMonitorInfoW render-only virtual monitor: rcMonitor %ldx%ld -> %dx%d, rcWork stays physical caller=%s",
             ow,oh,config.main.renderResolution.x,config.main.renderResolution.y,
             getModuleName(srcMod));
         logged=true;
@@ -711,18 +727,22 @@ BOOL WINAPI NewGetMonitorInfoA(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   SOURCE_MODULE(srcMod);
   if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    if(isHooked(srcMod) && SoftTHActive && (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
+    if(isHooked(srcMod) && SoftTHActive &&
+       fsxMonitorVirtualizationCaller(srcMod) &&
+       (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
       const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
       const LONG oh = tmp.rcMonitor.bottom - tmp.rcMonitor.top;
+
+      // Render geometry gets the virtual monitor, but Windows placement keeps
+      // the real physical work area.
       lpmi->rcMonitor.left = 0;
       lpmi->rcMonitor.top = 0;
       lpmi->rcMonitor.right = config.main.renderResolution.x;
       lpmi->rcMonitor.bottom = config.main.renderResolution.y;
-      lpmi->rcWork = lpmi->rcMonitor;
 
       static bool logged=false;
       if(!logged) {
-        dbg("FSX GetMonitorInfoA virtualized primary: %ldx%ld -> %dx%d caller=%s",
+        dbg("FSX GetMonitorInfoA render-only virtual monitor: rcMonitor %ldx%ld -> %dx%d, rcWork stays physical caller=%s",
             ow,oh,config.main.renderResolution.x,config.main.renderResolution.y,
             getModuleName(srcMod));
         logged=true;
