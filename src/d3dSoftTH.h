@@ -243,7 +243,31 @@ interface IDirect3DSwapChain9SoftTH : public IDirect3DSwapChain9
     STDMETHOD(GetDevice)(THIS_ IDirect3DDevice9** ppDevice)
       {*ppDevice = dev;dev->AddRef();return D3D_OK;};
     STDMETHOD(GetPresentParameters)(THIS_ D3DPRESENT_PARAMETERS* pPresentationParameters)
-      {return sc->GetPresentParameters(pPresentationParameters);};
+      {
+        HRESULT ret = sc->GetPresentParameters(pPresentationParameters);
+        if(SUCCEEDED(ret) && pPresentationParameters) {
+          // The underlying swap chain is intentionally only the physical
+          // primary-head size.  Do not leak that native 1920x1080 size back
+          // to FSX when SoftTH is presenting a larger virtual backbuffer.
+          IDirect3DSurface9 *virtualBB = NULL;
+          if(SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &virtualBB)) && virtualBB) {
+            D3DSURFACE_DESC vd;
+            if(SUCCEEDED(virtualBB->GetDesc(&vd)) &&
+               (vd.Width != pPresentationParameters->BackBufferWidth ||
+                vd.Height != pPresentationParameters->BackBufferHeight))
+            {
+              dbg("FSX swapchain: virtualizing GetPresentParameters %dx%d -> %dx%d",
+                  pPresentationParameters->BackBufferWidth,
+                  pPresentationParameters->BackBufferHeight,
+                  vd.Width, vd.Height);
+              pPresentationParameters->BackBufferWidth = vd.Width;
+              pPresentationParameters->BackBufferHeight = vd.Height;
+            }
+            virtualBB->Release();
+          }
+        }
+        return ret;
+      };
 
 private:
   IDirect3DDevice9SoftTH *dev;
