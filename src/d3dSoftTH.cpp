@@ -628,7 +628,7 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
       pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0,
       (pp && pp->Windowed) ? "Windowed" : "Fullscreen");
 
-  dbg("DIAG Reset input: %dx%d %s refresh=%d hwnd=0x%08X",
+  dbgf("DIAG Reset input: %dx%d %s refresh=%d hwnd=0x%08X",
       pp->BackBufferWidth, pp->BackBufferHeight,
       pp->Windowed?"Windowed":"Fullscreen",
       pp->FullScreen_RefreshRateInHz, pp->hDeviceWindow);
@@ -653,7 +653,7 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
   if(windowedMultiheadAtReset)
     dbg("FSX: windowed multihead RESET to virtual %dx%d (app physical %dx%d)",
         wantedX, wantedY, pp->BackBufferWidth, pp->BackBufferHeight);
-  dbg("DIAG Reset effective: app=%dx%d wanted=%dx%d mode=%s",
+  dbgf("DIAG Reset effective: app=%dx%d wanted=%dx%d mode=%s",
       pp->BackBufferWidth, pp->BackBufferHeight, wantedX, wantedY,
       pp->Windowed?"Windowed":"Fullscreen");
 
@@ -1436,7 +1436,7 @@ HRESULT IDirect3DDevice9SoftTH::CreateRenderTarget(UINT Width,UINT Height,D3DFOR
     static UINT lastW=0xffffffff,lastH=0xffffffff;
     static D3DFORMAT lastF=(D3DFORMAT)-1;
     if(Width!=lastW || Height!=lastH || Format!=lastF) {
-      dbg("DIAG CreateRenderTarget: %dx%d %s ms=%d q=%d lock=%d",
+      dbgf("DIAG CreateRenderTarget: %dx%d %s ms=%d q=%d lock=%d",
           Width,Height,getMode(Format),MultiSample,MultisampleQuality,Lockable);
       lastW=Width; lastH=Height; lastF=Format;
     }
@@ -1451,7 +1451,7 @@ HRESULT IDirect3DDevice9SoftTH::CreateTexture(UINT Width,UINT Height,UINT Levels
     static DWORD lastU=0xffffffff;
     static D3DFORMAT lastF=(D3DFORMAT)-1;
     if(Width!=lastW || Height!=lastH || Levels!=lastL || Usage!=lastU || Format!=lastF) {
-      dbg("DIAG CreateTexture RT: %dx%d levels=%d usage=0x%08X fmt=%s pool=%d",
+      dbgf("DIAG CreateTexture RT: %dx%d levels=%d usage=0x%08X fmt=%s pool=%d",
           Width,Height,Levels,Usage,getMode(Format),Pool);
       lastW=Width; lastH=Height; lastL=Levels; lastU=Usage; lastF=Format;
     }
@@ -1466,7 +1466,7 @@ HRESULT IDirect3DDevice9SoftTH::StretchRect(IDirect3DSurface9* pSourceSurface,CO
     if(SUCCEEDED(pSourceSurface->GetDesc(&s)) && SUCCEEDED(pDestSurface->GetDesc(&d))) {
       static UINT lsw=0xffffffff,lsh=0xffffffff,ldw=0xffffffff,ldh=0xffffffff;
       if(s.Width!=lsw || s.Height!=lsh || d.Width!=ldw || d.Height!=ldh) {
-        dbg("DIAG StretchRect: src=%dx%d dst=%dx%d srcRect=%s dstRect=%s filter=%d",
+        dbgf("DIAG StretchRect: src=%dx%d dst=%dx%d srcRect=%s dstRect=%s filter=%d",
             s.Width,s.Height,d.Width,d.Height,
             pSourceRect?strRect(pSourceRect):"<full>",
             pDestRect?strRect(pDestRect):"<full>",Filter);
@@ -1505,7 +1505,7 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
       static IDirect3DSurface9 *lastDiagRT=NULL;
       static UINT lastDiagW=0xffffffff,lastDiagH=0xffffffff;
       if(actualRT!=lastDiagRT || rd.Width!=lastDiagW || rd.Height!=lastDiagH) {
-        dbg("DIAG SetRenderTarget0: ptr=0x%08X size=%dx%d fmt=%s %s",
+        dbgf("DIAG SetRenderTarget0: ptr=0x%08X size=%dx%d fmt=%s %s",
             actualRT,rd.Width,rd.Height,getMode(rd.Format),
             actualRT==newbb?"<SoftTH-newbb>":"<other>");
         lastDiagRT=actualRT; lastDiagW=rd.Width; lastDiagH=rd.Height;
@@ -1521,7 +1521,7 @@ HRESULT IDirect3DDevice9SoftTH::SetRenderTarget(THIS_ DWORD RenderTargetIndex,ID
       static LONG lastRR=LONG_MIN, lastRB=LONG_MIN;
       if(dvp.Width != lastRW || dvp.Height != lastRH ||
          dsc.right != lastRR || dsc.bottom != lastRB) {
-        dbg("DIAG SetRenderTarget newbb: vp=%d,%d %dx%d sc=%ld,%ld,%ld,%ld wanted=%dx%d physical=%dx%d",
+        dbgf("DIAG SetRenderTarget newbb: vp=%d,%d %dx%d sc=%ld,%ld,%ld,%ld wanted=%dx%d physical=%dx%d",
             dvp.X, dvp.Y, dvp.Width, dvp.Height,
             dsc.left, dsc.top, dsc.right, dsc.bottom,
             wantedX, wantedY, bbDesc.Width, bbDesc.Height);
@@ -1650,7 +1650,7 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     static DWORD lastVW = 0xffffffff, lastVH = 0xffffffff;
     if(pViewport->X != lastVX || pViewport->Y != lastVY ||
        pViewport->Width != lastVW || pViewport->Height != lastVH) {
-      dbg("DIAG SetViewport virtual: x=%d y=%d w=%d h=%d wanted=%dx%d physical=%dx%d",
+      dbgf("DIAG SetViewport virtual: x=%d y=%d w=%d h=%d wanted=%dx%d physical=%dx%d",
           pViewport->X, pViewport->Y, pViewport->Width, pViewport->Height,
           wantedX, wantedY, bbDesc.Width, bbDesc.Height);
       lastVX=pViewport->X; lastVY=pViewport->Y;
@@ -1761,7 +1761,7 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
     static LONG lastSR = LONG_MIN, lastSB = LONG_MIN;
     if(pRect->left != lastSL || pRect->top != lastST ||
        pRect->right != lastSR || pRect->bottom != lastSB) {
-      dbg("DIAG SetScissor virtual: l=%ld t=%ld r=%ld b=%ld wanted=%dx%d physical=%dx%d",
+      dbgf("DIAG SetScissor virtual: l=%ld t=%ld r=%ld b=%ld wanted=%dx%d physical=%dx%d",
           pRect->left, pRect->top, pRect->right, pRect->bottom,
           wantedX, wantedY, bbDesc.Width, bbDesc.Height);
       lastSL=pRect->left; lastST=pRect->top;
@@ -1859,119 +1859,16 @@ static bool fsxLooksLikePhysicalScreenConstant(float v, float w, float h)
   return false;
 }
 
-HRESULT IDirect3DDevice9SoftTH::SetVertexShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
-{
-  if(newbb && pConstantData && Vector4fCount && bbDesc.Width && bbDesc.Height) {
-    bool hit=false;
-    UINT hitVec=0;
-    for(UINT v=0; v<Vector4fCount && !hit; v++) {
-      for(int k=0;k<4;k++) {
-        if(fsxLooksLikePhysicalScreenConstant(pConstantData[v*4+k], (float)bbDesc.Width, (float)bbDesc.Height)) {
-          hit=true; hitVec=v; break;
-        }
-      }
-    }
-    if(hit) {
-      fsxCachedPhysicalVSConstReg = (int)(StartRegister + hitVec);
-      static bool seen[256]={false};
-      const UINT r=StartRegister+hitVec;
-      if(r<256 && !seen[r]) {
-        seen[r]=true;
-        const float *p=pConstantData+hitVec*4;
-        dbg("DIAG CACHE VS physical constant c%d=(%g,%g,%g,%g)", r,p[0],p[1],p[2],p[3]);
-      }
-    }
-  }
-  return dev->SetVertexShaderConstantF(StartRegister,pConstantData,Vector4fCount);
-}
-
-HRESULT IDirect3DDevice9SoftTH::SetPixelShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
-{
-  if(newbb && pConstantData && Vector4fCount && bbDesc.Width && bbDesc.Height) {
-    bool hit=false;
-    UINT hitVec=0;
-    for(UINT v=0; v<Vector4fCount && !hit; v++) {
-      for(int k=0;k<4;k++) {
-        if(fsxLooksLikePhysicalScreenConstant(pConstantData[v*4+k], (float)bbDesc.Width, (float)bbDesc.Height)) {
-          hit=true; hitVec=v; break;
-        }
-      }
-    }
-    if(hit) {
-      fsxCachedPhysicalPSConstReg = (int)(StartRegister + hitVec);
-      static bool seen[224]={false};
-      const UINT r=StartRegister+hitVec;
-      if(r<224 && !seen[r]) {
-        seen[r]=true;
-        const float *p=pConstantData+hitVec*4;
-        dbg("DIAG CACHE PS physical constant c%d=(%g,%g,%g,%g)", r,p[0],p[1],p[2],p[3]);
-      }
-    }
-  }
-  return dev->SetPixelShaderConstantF(StartRegister,pConstantData,Vector4fCount);
-}
-
-HRESULT IDirect3DDevice9SoftTH::SetFVF(DWORD FVF)
-{
-  fsxCachedFVF = FVF;
-  fsxCachedUsingDecl = false;
-  fsxCachedPositionT = ((FVF & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW);
-  fsxCachedPositionTOffset = 0;
-  return dev->SetFVF(FVF);
-}
-
-HRESULT IDirect3DDevice9SoftTH::SetVertexDeclaration(IDirect3DVertexDeclaration9* pDecl)
-{
-  fsxCachedUsingDecl = true;
-  fsxCachedPositionT = false;
-  fsxCachedPositionTOffset = 0;
-  if(pDecl) {
-    D3DVERTEXELEMENT9 elems[MAXD3DDECLLENGTH+1];
-    UINT n=MAXD3DDECLLENGTH+1;
-    if(SUCCEEDED(pDecl->GetDeclaration(elems,&n))) {
-      for(UINT i=0;i<n;i++) {
-        if(elems[i].Stream==0xFF) break;
-        if(elems[i].Stream==0 &&
-           elems[i].Usage==D3DDECLUSAGE_POSITIONT &&
-           elems[i].Type==D3DDECLTYPE_FLOAT4) {
-          fsxCachedPositionT=true;
-          fsxCachedPositionTOffset=elems[i].Offset;
-          break;
-        }
-      }
-    }
-  }
-  return dev->SetVertexDeclaration(pDecl);
-}
-
 HRESULT IDirect3DDevice9SoftTH::SetVertexShader(IDirect3DVertexShader9* pShader)
 {
-  fsxCachedVertexShader = (pShader != NULL);
   return dev->SetVertexShader(pShader);
 }
-
 HRESULT IDirect3DDevice9SoftTH::SetStreamSource(UINT StreamNumber,IDirect3DVertexBuffer9* pStreamData,UINT OffsetInBytes,UINT Stride)
 {
-  if(StreamNumber==0) fsxCachedStride0=Stride;
   return dev->SetStreamSource(StreamNumber, OriginalFromNewVBuffer(pStreamData), OffsetInBytes, Stride);
 }
-
 HRESULT IDirect3DDevice9SoftTH::SetTexture(DWORD Stage,IDirect3DBaseTexture9* pTexture)
 {
-  if(Stage==0) {
-    fsxCachedTex0W=fsxCachedTex0H=0;
-    if(pTexture && pTexture->GetType()==D3DRTYPE_TEXTURE) {
-      IDirect3DTexture9 *tex=NULL;
-      if(SUCCEEDED(pTexture->QueryInterface(IID_IDirect3DTexture9,(void**)&tex)) && tex) {
-        D3DSURFACE_DESC td;
-        if(SUCCEEDED(tex->GetLevelDesc(0,&td))) {
-          fsxCachedTex0W=td.Width;
-          fsxCachedTex0H=td.Height;
-        }
-        tex->Release();
-      }
-    }
-  }
   return dev->SetTexture(Stage, OriginalFromNewTexture(pTexture));
 }
 
@@ -2001,7 +1898,7 @@ void IDirect3DDevice9SoftTH::diagFSXCachedDraw(const char *kind, D3DPRIMITIVETYP
   if(seenCount>=80) return;
   seen[seenCount++]=hash;
 
-  dbg("DIAG CACHE DRAW %s pt=%d prim=%d vp=%dx%d VS=%d FVF=0x%08X decl=%d posT=%d stride=%d tex0=%dx%d physVS=c%d physPS=c%d",
+  dbgf("DIAG CACHE DRAW %s pt=%d prim=%d vp=%dx%d VS=%d FVF=0x%08X decl=%d posT=%d stride=%d tex0=%dx%d physVS=c%d physPS=c%d",
       kind,primitiveType,primitiveCount,
       fsxCachedViewport.Width,fsxCachedViewport.Height,
       fsxCachedVertexShader?1:0,fsxCachedFVF,fsxCachedUsingDecl?1:0,
@@ -2088,7 +1985,7 @@ void IDirect3DDevice9SoftTH::diagFSXDrawState(const char *kind, D3DPRIMITIVETYPE
   if(seenCount>=64) return;
   seen[seenCount++]=hash;
 
-  dbg("DIAG DRAW %s pt=%d prim=%d vp=%d,%d %dx%d sc=%ld,%ld,%ld,%ld scEn=%d VS=%d FVF=0x%08X posT=%d stride=%d tex0=%dx%d",
+  dbgf("DIAG DRAW %s pt=%d prim=%d vp=%d,%d %dx%d sc=%ld,%ld,%ld,%ld scEn=%d VS=%d FVF=0x%08X posT=%d stride=%d tex0=%dx%d",
       kind,primitiveType,primitiveCount,
       vp.X,vp.Y,vp.Width,vp.Height,
       sc.left,sc.top,sc.right,sc.bottom,
@@ -2215,7 +2112,7 @@ void IDirect3DDevice9SoftTH::diagFSXPositionTUP(const char *kind, D3DPRIMITIVETY
     seenCount++;
   }
 
-  dbg("DIAG POSUP %s pt=%d prim=%d vtx=%d stride=%d off=%d range=(%.3f,%.3f)-(%.3f,%.3f) physical=%dx%d virtual=%dx%d tex0=%dx%d",
+  dbgf("DIAG POSUP %s pt=%d prim=%d vtx=%d stride=%d off=%d range=(%.3f,%.3f)-(%.3f,%.3f) physical=%dx%d virtual=%dx%d tex0=%dx%d",
       kind,primitiveType,primitiveCount,vertexCount,stride,fsxCachedPositionTOffset,
       minX,minY,maxX,maxY,bbDesc.Width,bbDesc.Height,wantedX,wantedY,
       fsxCachedTex0W,fsxCachedTex0H);
@@ -2285,7 +2182,7 @@ bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UIN
 
   static int logCount=0;
   if(logCount<24) {
-    dbg("FSX POSITIONT scale: native range=(%.3f,%.3f)-(%.3f,%.3f) x%.3f,y%.3f -> virtual %dx%d vp=%dx%d tex0=%dx%d",
+    dbgf("FSX POSITIONT scale: native range=(%.3f,%.3f)-(%.3f,%.3f) x%.3f,y%.3f -> virtual %dx%d vp=%dx%d tex0=%dx%d",
         minX,minY,maxX,maxY,sx,sy,wantedX,wantedY,
         fsxCachedViewport.Width,fsxCachedViewport.Height,
         fsxCachedTex0W,fsxCachedTex0H);
@@ -2299,14 +2196,12 @@ bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UIN
 HRESULT IDirect3DDevice9SoftTH::DrawPrimitive(D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXCachedDraw("DP",PrimitiveType,PrimitiveCount);
   return dev->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 }
 
 HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount)
 {
   repairFSXVirtualViewportForDraw();
-  diagFSXCachedDraw("DIP",PrimitiveType,primCount);
   return dev->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, startIndex, primCount);
 }
 
@@ -2315,9 +2210,6 @@ HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,U
   repairFSXVirtualViewportForDraw();
   const UINT oldStride=fsxCachedStride0;
   fsxCachedStride0=VertexStreamZeroStride;
-  const UINT vertexCount=fsxUPVertexCount(PrimitiveType,PrimitiveCount);
-  diagFSXPositionTUP("DPUP",PrimitiveType,PrimitiveCount,vertexCount,pVertexStreamZeroData,VertexStreamZeroStride);
-  diagFSXCachedDraw("DPUP",PrimitiveType,PrimitiveCount);
 
   fsxCachedStride0=oldStride;
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
@@ -2328,8 +2220,6 @@ HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE Primitiv
   repairFSXVirtualViewportForDraw();
   const UINT oldStride=fsxCachedStride0;
   fsxCachedStride0=VertexStreamZeroStride;
-  diagFSXPositionTUP("DIPUP",PrimitiveType,PrimitiveCount,NumVertices,pVertexStreamZeroData,VertexStreamZeroStride);
-  diagFSXCachedDraw("DIPUP",PrimitiveType,PrimitiveCount);
 
   fsxCachedStride0=oldStride;
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
