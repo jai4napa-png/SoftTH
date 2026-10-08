@@ -372,6 +372,55 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
   return origFunc(hWnd, lpPoint);
 }
 
+int WINAPI NewGetSystemMetrics(int nIndex)
+{
+  typedef int (WINAPI*OCALL)(int);
+  const static OCALL origFunc = (OCALL) getHookCall("GetSystemMetrics");
+  int ret = origFunc(nIndex);
+
+  SOURCE_MODULE(srcMod);
+  if(isHooked(srcMod) && SoftTHActive)
+  {
+    int v = ret;
+    bool overrideMetric = true;
+    switch(nIndex)
+    {
+      case SM_CXSCREEN:
+      case SM_CXVIRTUALSCREEN:
+        v = config.main.renderResolution.x;
+        break;
+      case SM_CYSCREEN:
+      case SM_CYVIRTUALSCREEN:
+        v = config.main.renderResolution.y;
+        break;
+      case SM_XVIRTUALSCREEN:
+      case SM_YVIRTUALSCREEN:
+        v = 0;
+        break;
+      case SM_CMONITORS:
+        v = 1;
+        break;
+      default:
+        overrideMetric = false;
+        break;
+    }
+
+    if(overrideMetric)
+    {
+      static bool logged[100] = {false};
+      int slot = (nIndex >= 0 && nIndex < 100) ? nIndex : 99;
+      if(!logged[slot])
+      {
+        dbg("FSX GetSystemMetrics: index=%d physical=%d virtual=%d caller=%s",
+            nIndex, ret, v, getModuleName(srcMod));
+        logged[slot] = true;
+      }
+      return v;
+    }
+  }
+  return ret;
+}
+
 BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
 {
   dbgf("hooksSoftTH: NewGetWindowRect");
@@ -818,6 +867,7 @@ GHOOK SoftTHHooks[] = {
   HOOK(NewGetCursorPos, user32.dll, GetCursorPos)
   HOOK(NewGetCursorInfo, user32.dll, GetCursorInfo)
   HOOK(NewSetCursorPos, user32.dll, SetCursorPos)
+  HOOK(NewGetSystemMetrics, user32.dll, GetSystemMetrics)
   HOOK(NewGetWindowRect, user32.dll, GetWindowRect)
   HOOK(NewGetClientRect, user32.dll, GetClientRect)
   HOOK(NewSetWindowPos, user32.dll, SetWindowPos)
