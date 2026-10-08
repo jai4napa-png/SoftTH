@@ -5,6 +5,9 @@ on:
   push:
     branches: [ "fsx-win11" ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-2022
@@ -48,3 +51,16 @@ jobs:
           name: SoftTH-v3.42-FSX-SE-Win11-Beta-x86
           path: dist/SoftTH-v3.42-FSX-SE-Win11-Beta-x86.zip
           if-no-files-found: error
+
+      - name: Publish GitHub prerelease v3.42
+        if: github.ref == 'refs/heads/fsx-win11'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v3.42" --repo "$env:GITHUB_REPOSITORY" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release v3.42 already exists; leaving it unchanged."
+            exit 0
+          }
+          gh release create "v3.42" "dist\SoftTH-v3.42-FSX-SE-Win11-Beta-x86.zip#SoftTH v3.42 FSX-SE Win11 Beta x86" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "SoftTH v3.42 FSX-SE / Windows 11 Public Beta" --notes-file "RELEASE_NOTES_FSX_WIN11.md" --prerelease
