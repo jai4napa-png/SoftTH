@@ -96,7 +96,9 @@ interface IDirect3DDevice9SoftTH : public IDirect3DDevice9New
   STDMETHOD(GetDisplayMode)(THIS_ UINT iSwapChain,D3DDISPLAYMODE* pMode);
   STDMETHOD(Clear)(THIS_ DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil);
   STDMETHOD(SetViewport)(THIS_ CONST D3DVIEWPORT9* pViewport);
+  STDMETHOD(GetViewport)(THIS_ D3DVIEWPORT9* pViewport);
   STDMETHOD(SetScissorRect)(THIS_ CONST RECT* pRect);
+  STDMETHOD(GetScissorRect)(THIS_ RECT* pRect);
   STDMETHOD(SetTransform)(THIS_ D3DTRANSFORMSTATETYPE State,CONST D3DMATRIX* pMatrix);
   STDMETHOD(SetFVF)(THIS_ DWORD FVF);
   STDMETHOD(SetVertexDeclaration)(THIS_ IDirect3DVertexDeclaration9* pDecl);
