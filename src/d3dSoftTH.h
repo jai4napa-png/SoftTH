@@ -98,6 +98,11 @@ interface IDirect3DDevice9SoftTH : public IDirect3DDevice9New
   STDMETHOD(SetViewport)(THIS_ CONST D3DVIEWPORT9* pViewport);
   STDMETHOD(SetScissorRect)(THIS_ CONST RECT* pRect);
   STDMETHOD(SetTransform)(THIS_ D3DTRANSFORMSTATETYPE State,CONST D3DMATRIX* pMatrix);
+  STDMETHOD(SetFVF)(THIS_ DWORD FVF);
+  STDMETHOD(SetVertexDeclaration)(THIS_ IDirect3DVertexDeclaration9* pDecl);
+  STDMETHOD(SetVertexShader)(THIS_ IDirect3DVertexShader9* pShader);
+  STDMETHOD(SetStreamSource)(THIS_ UINT StreamNumber,IDirect3DVertexBuffer9* pStreamData,UINT OffsetInBytes,UINT Stride);
+  STDMETHOD(SetTexture)(THIS_ DWORD Stage,IDirect3DBaseTexture9* pTexture);
   STDMETHOD(DrawPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount);
   STDMETHOD(DrawIndexedPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount);
   STDMETHOD(DrawPrimitiveUP)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride);
@@ -141,6 +146,7 @@ private:
 
   void adjustPP(D3DPRESENT_PARAMETERS* pp);  // Adjusts present_parameters for SoftTH
   void diagFSXDrawState(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount, UINT strideHint);
+  void diagFSXCachedDraw(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount);
   bool scaleFSXPhysicalScreenVertices(const void *src, UINT vertexCount, UINT stride, BYTE **scaledCopy);
   void repairFSXVirtualViewportForDraw();
   void createBuffers();  // Create new rendertarget etc.
@@ -181,6 +187,19 @@ private:
 
   HWND hFocusWindow;
   int wantedX, wantedY;
+
+  // v3.33 lightweight FSX diagnostics: state is cached when FSX sets it.
+  // Draw calls do not query D3D state, avoiding the v3.29 render-thread stall.
+  DWORD fsxCachedFVF;
+  bool fsxCachedUsingDecl;
+  bool fsxCachedPositionT;
+  bool fsxCachedVertexShader;
+  UINT fsxCachedStride0;
+  UINT fsxCachedTex0W, fsxCachedTex0H;
+  int fsxCachedPhysicalVSConstReg;
+  int fsxCachedPhysicalPSConstReg;
+  D3DVIEWPORT9 fsxCachedViewport;
+
   D3DMULTISAMPLE_TYPE msWanted;
   DWORD msQWanted;
   bool depthWanted;
