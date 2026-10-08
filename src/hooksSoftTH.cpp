@@ -42,6 +42,7 @@ static bool isHooked(HMODULE mod);
 void* getHookCall(char *name);
 extern HWND SoftTHPresentWindow;
 extern volatile int FSXVirtualMonitorActive;
+static bool fsxForegroundIsDialog();
 
 //#ifndef _WIN64
 #if 1
@@ -430,7 +431,8 @@ BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
 
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
-  if(SoftTHActive && (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
+  if(SoftTHActive && FSXVirtualMonitorActive && !fsxForegroundIsDialog() &&
+     (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
   {
     static bool loggedWindowRectOverride = false;
     static bool loggedPresentWindowRectOverride = false;
@@ -449,6 +451,14 @@ BOOL WINAPI NewGetWindowRect(HWND win, LPRECT rect)
     rect->right = rect->left + config.main.renderResolution.x;
     rect->bottom = rect->top + config.main.renderResolution.y;
   }
+  if(SoftTHActive && inputMapIsDeviceWindow(win) &&
+     (!FSXVirtualMonitorActive || fsxForegroundIsDialog())) {
+    static bool loggedPhysicalWindow=false;
+    if(!loggedPhysicalWindow) {
+      dbg("FSX UI/dialog: GetWindowRect left physical");
+      loggedPhysicalWindow=true;
+    }
+  }
 	return ret;
 }
 
@@ -460,7 +470,8 @@ BOOL WINAPI NewGetClientRect(HWND win, LPRECT rect)
 	BOOL ret = origFunc(win, rect);
   SOURCE_MODULE(srcMod);
   dbgf("NewGetClientRect from %s", getModuleName(srcMod));
-  if(SoftTHActive && (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
+  if(SoftTHActive && FSXVirtualMonitorActive && !fsxForegroundIsDialog() &&
+     (inputMapIsDeviceWindow(win) || win == SoftTHPresentWindow))
   {
     static bool loggedClientRectOverride = false;
     static bool loggedPresentClientRectOverride = false;
@@ -480,6 +491,14 @@ BOOL WINAPI NewGetClientRect(HWND win, LPRECT rect)
     rect->top = 0;
     rect->right = config.main.renderResolution.x;
     rect->bottom = config.main.renderResolution.y;
+  }
+  if(SoftTHActive && inputMapIsDeviceWindow(win) &&
+     (!FSXVirtualMonitorActive || fsxForegroundIsDialog())) {
+    static bool loggedPhysicalClient=false;
+    if(!loggedPhysicalClient) {
+      dbg("FSX UI/dialog: GetClientRect left physical");
+      loggedPhysicalClient=true;
+    }
   }
 	return ret;
 }
