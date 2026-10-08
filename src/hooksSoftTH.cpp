@@ -44,6 +44,14 @@ extern HWND SoftTHPresentWindow;
 extern volatile int FSXVirtualMonitorActive;
 static bool fsxForegroundIsDialog();
 
+// FSX needs virtual cursor coordinates for its 5760x2160 render/UI hit testing,
+// but native Win32 popup menus must still be positioned in real desktop pixels.
+// Remember both forms of the most recent cursor query so TrackPopupMenu can
+// translate only the popup anchor back to the physical desktop.
+__declspec(thread) static bool fsxLastCursorWasVirtual = false;
+__declspec(thread) static POINT fsxLastPhysicalCursor = {0,0};
+__declspec(thread) static POINT fsxLastVirtualCursor = {0,0};
+
 //#ifndef _WIN64
 #if 1
 
@@ -281,13 +289,62 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
   SOURCE_MODULE(srcMod);
 
   dbgf("NewGetCursorPos from %s", getModuleName(srcMod));
+  fsxLastCursorWasVirtual = false;
   if((isHooked(srcMod) || srcMod == hLibD3D9) && SoftTHActive)
   {
-    // Find window under cursor, map to backbuffer coordinate
-    pointToVirtual(point);
+    POINT physical = *point;
+    POINT vp = physical;
+    if(inputMapScreenToVirtual(&physical, &vp))
+    {
+      fsxLastPhysicalCursor = physical;
+      fsxLastVirtualCursor = vp;
+      fsxLastCursorWasVirtual = true;
+      *point = vp;
+    }
     return ret;
   }
   return ret;
+}
+
+static void fsxPopupPointToPhysical(int *x, int *y)
+{
+  if(!x || !y || !SoftTHActive || !FSXVirtualMonitorActive || !fsxLastCursorWasVirtual)
+    return;
+
+  // TrackPopupMenu is normally called immediately after GetCursorPos.
+  // Convert only an anchor that matches that virtualized cursor query; this
+  // avoids disturbing menus intentionally placed at other coordinates.
+  if(abs(*x - fsxLastVirtualCursor.x) <= 4 &&
+     abs(*y - fsxLastVirtualCursor.y) <= 4)
+  {
+    static int logged = 0;
+    if(logged < 12)
+    {
+      dbg("FSX popup virtual->physical: %d,%d -> %d,%d",
+          *x, *y, fsxLastPhysicalCursor.x, fsxLastPhysicalCursor.y);
+      logged++;
+    }
+    *x = fsxLastPhysicalCursor.x;
+    *y = fsxLastPhysicalCursor.y;
+  }
+}
+
+BOOL WINAPI NewTrackPopupMenu(HMENU hMenu, UINT uFlags, int x, int y,
+                              int nReserved, HWND hWnd, const RECT *prcRect)
+{
+  typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, int, HWND, const RECT *);
+  const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenu");
+  fsxPopupPointToPhysical(&x, &y);
+  return origFunc(hMenu, uFlags, x, y, nReserved, hWnd, prcRect);
+}
+
+BOOL WINAPI NewTrackPopupMenuEx(HMENU hMenu, UINT uFlags, int x, int y,
+                                HWND hWnd, LPTPMPARAMS lptpm)
+{
+  typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
+  const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenuEx");
+  fsxPopupPointToPhysical(&x, &y);
+  return origFunc(hMenu, uFlags, x, y, hWnd, lptpm);
 }
 
 BOOL WINAPI NewGetCursorInfo(CURSORINFO *pci)
@@ -935,6 +992,8 @@ GHOOK SoftTHHooks[] = {
   HOOK(NewGetCursorPos, user32.dll, GetCursorPos)
   HOOK(NewGetCursorInfo, user32.dll, GetCursorInfo)
   HOOK(NewSetCursorPos, user32.dll, SetCursorPos)
+  HOOK(NewTrackPopupMenu, user32.dll, TrackPopupMenu)
+  HOOK(NewTrackPopupMenuEx, user32.dll, TrackPopupMenuEx)
   HOOK(NewGetSystemMetrics, user32.dll, GetSystemMetrics)
   HOOK(NewGetWindowRect, user32.dll, GetWindowRect)
   HOOK(NewGetClientRect, user32.dll, GetClientRect)
