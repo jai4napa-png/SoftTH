@@ -1598,9 +1598,10 @@ HRESULT IDirect3DDevice9SoftTH::GetDisplayMode(UINT iSwapChain, D3DDISPLAYMODE* 
 // through unchanged.
 HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
 {
-  if(!pViewport || !newbb)
+  if(!pViewport || !newbb) {
     if(pViewport) fsxCachedViewport = *pViewport;
-  return dev->SetViewport(pViewport);
+    return dev->SetViewport(pViewport);
+  }
 
   bool virtualTarget = false;
   IDirect3DSurface9 *rt = NULL;
@@ -1653,7 +1654,56 @@ HRESULT IDirect3DDevice9SoftTH::SetViewport(CONST D3DVIEWPORT9* pViewport)
     return dev->SetViewport(&vp);
   }
 
+  fsxCachedViewport = *pViewport;
   return dev->SetViewport(pViewport);
+}
+
+HRESULT IDirect3DDevice9SoftTH::GetViewport(D3DVIEWPORT9* pViewport)
+{
+  if(!pViewport)
+    return D3DERR_INVALIDCALL;
+
+  HRESULT ret = dev->GetViewport(pViewport);
+  if(FAILED(ret) || !newbb ||
+     bbDesc.Width == 0 || bbDesc.Height == 0 ||
+     ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
+    return ret;
+
+  // StateBlock::Apply() bypasses this wrapper's SetViewport and can restore
+  // the physical 1920x1080 viewport.  FSX then performs software/pretransformed
+  // POSITIONT work using GetViewport(), so return the virtual equivalent even
+  // if the underlying device temporarily contains the native viewport.
+  IDirect3DSurface9 *rt = NULL;
+  bool virtualTarget = false;
+  if(SUCCEEDED(dev->GetRenderTarget(0, &rt)) && rt) {
+    virtualTarget = (rt == newbb);
+    rt->Release();
+  }
+  if(!virtualTarget)
+    return ret;
+
+  if(pViewport->X <= bbDesc.Width && pViewport->Y <= bbDesc.Height &&
+     pViewport->Width <= bbDesc.Width && pViewport->Height <= bbDesc.Height &&
+     pViewport->X + pViewport->Width <= bbDesc.Width &&
+     pViewport->Y + pViewport->Height <= bbDesc.Height)
+  {
+    D3DVIEWPORT9 native = *pViewport;
+    pViewport->X = (DWORD)(((ULONGLONG)native.X * (ULONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    pViewport->Y = (DWORD)(((ULONGLONG)native.Y * (ULONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+    pViewport->Width = (DWORD)(((ULONGLONG)native.Width * (ULONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    pViewport->Height = (DWORD)(((ULONGLONG)native.Height * (ULONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+    fsxCachedViewport = *pViewport;
+
+    static bool loggedGetVp = false;
+    if(!loggedGetVp) {
+      dbg("FSX GetViewport virtualized: %d,%d %dx%d -> %d,%d %dx%d",
+          native.X,native.Y,native.Width,native.Height,
+          pViewport->X,pViewport->Y,pViewport->Width,pViewport->Height);
+      loggedGetVp = true;
+    }
+  }
+
+  return ret;
 }
 
 // A full-size native scissor rectangle clips an otherwise valid virtual
@@ -1709,6 +1759,49 @@ HRESULT IDirect3DDevice9SoftTH::SetScissorRect(CONST RECT* pRect)
     return dev->SetScissorRect(&sc);
   }
   return dev->SetScissorRect(pRect);
+}
+
+HRESULT IDirect3DDevice9SoftTH::GetScissorRect(RECT* pRect)
+{
+  if(!pRect)
+    return D3DERR_INVALIDCALL;
+
+  HRESULT ret = dev->GetScissorRect(pRect);
+  if(FAILED(ret) || !newbb ||
+     bbDesc.Width == 0 || bbDesc.Height == 0 ||
+     ((DWORD)wantedX == bbDesc.Width && (DWORD)wantedY == bbDesc.Height))
+    return ret;
+
+  IDirect3DSurface9 *rt = NULL;
+  bool virtualTarget = false;
+  if(SUCCEEDED(dev->GetRenderTarget(0, &rt)) && rt) {
+    virtualTarget = (rt == newbb);
+    rt->Release();
+  }
+  if(!virtualTarget)
+    return ret;
+
+  if(pRect->left >= 0 && pRect->top >= 0 &&
+     pRect->right >= pRect->left && pRect->bottom >= pRect->top &&
+     pRect->right <= (LONG)bbDesc.Width &&
+     pRect->bottom <= (LONG)bbDesc.Height)
+  {
+    RECT native = *pRect;
+    pRect->left   = (LONG)(((LONGLONG)native.left   * (LONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    pRect->top    = (LONG)(((LONGLONG)native.top    * (LONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+    pRect->right  = (LONG)(((LONGLONG)native.right  * (LONGLONG)wantedX + bbDesc.Width/2) / bbDesc.Width);
+    pRect->bottom = (LONG)(((LONGLONG)native.bottom * (LONGLONG)wantedY + bbDesc.Height/2) / bbDesc.Height);
+
+    static bool loggedGetSc = false;
+    if(!loggedGetSc) {
+      dbg("FSX GetScissorRect virtualized: %ld,%ld,%ld,%ld -> %ld,%ld,%ld,%ld",
+          native.left,native.top,native.right,native.bottom,
+          pRect->left,pRect->top,pRect->right,pRect->bottom);
+      loggedGetSc = true;
+    }
+  }
+
+  return ret;
 }
 
 static bool fsxNearFloat(float v, float target)
