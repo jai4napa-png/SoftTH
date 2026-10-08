@@ -1,5 +1,22 @@
-SoftTH
-======
+# SoftTH
+
+## New: SoftTH for FSX Steam Edition on Windows 11
+
+**SoftTH v3.42 FSX-SE / Windows 11 Public Beta (x86)** is now available.
+
+This updated SoftTH fork restores multi-monitor / triple-screen / quad-monitor rendering for **Microsoft Flight Simulator X: Steam Edition (FSX-SE)** on **Windows 11** using Direct3D 9. It supports mixed monitor layouts and custom SoftTH `sourceRect` calibration, including wide and non-rectangular arrangements.
+
+**Download:** https://github.com/jai4napa-png/SoftTH/releases/tag/v3.42
+
+**FSX-Win11 source branch:** https://github.com/jai4napa-png/SoftTH/tree/fsx-win11
+
+Search terms this project is intended to help with include: **FSX Steam Edition multiple monitors, FSX triple monitor, FSX multi-monitor Windows 11, SoftTH Windows 11, FSX triple screen, FSX quad monitor, FSX ultrawide multi-screen, and FSX Direct3D 9 multihead**.
+
+Current status: **public beta**. The core fullscreen multihead rendering fix is working; monitor calibration, some FSX dialog/UI behavior, startup flow, and wide-view/FOV tuning remain beta areas.
+
+---
+
+## Original SoftTH project
 
 Software TripleHead originally by Keijo "Kegetys" Ruotsalainen, http://www.kegetys.fi.
 
