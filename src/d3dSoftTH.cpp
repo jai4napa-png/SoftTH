@@ -55,6 +55,52 @@ volatile int FSXVirtualMonitorActive = 0; // FSX logical multihead fullscreen is
 bool *SoftTHActiveSquashed = NULL; // Pointer to latest SoftTH device squash variable (TODO: horrible)
 HWND SoftTHPresentWindow = NULL; // FSX-owned window supplied through Present(hDestWindowOverride)
 
+static void fsxRestoreForegroundInput(HWND focusWindow)
+{
+  if(!focusWindow || !FSXVirtualMonitorActive)
+    return;
+
+  HWND root = GetAncestor(focusWindow, GA_ROOT);
+  if(!root) root = focusWindow;
+
+  HWND fgBefore = GetForegroundWindow();
+  HWND focusBefore = GetFocus();
+
+  DWORD fgPid = 0;
+  if(fgBefore) GetWindowThreadProcessId(fgBefore, &fgPid);
+
+  // Never steal focus from another application.  This repair is only for the
+  // Alt+Enter/reset path while FSX itself is already the foreground process.
+  if(fgBefore && fgPid != GetCurrentProcessId()) {
+    dbg("FSX input focus repair skipped: another process owns foreground");
+    return;
+  }
+
+  DWORD targetTid = GetWindowThreadProcessId(focusWindow, NULL);
+  DWORD curTid = GetCurrentThreadId();
+  bool attached = false;
+  if(targetTid && targetTid != curTid)
+    attached = AttachThreadInput(curTid, targetTid, TRUE) ? true : false;
+
+  SetForegroundWindow(root);
+  SetActiveWindow(root);
+  HWND oldFocus = SetFocus(focusWindow);
+
+  if(attached)
+    AttachThreadInput(curTid, targetTid, FALSE);
+
+  // FSX's DirectInput keyboard/joystick acquisition is activation-sensitive.
+  // A logical fullscreen reset is backed by a physically windowed D3D device,
+  // so Windows may not emit the normal fullscreen re-activation sequence.
+  // Nudge FSX once after the reset so it reacquires flight controls.
+  PostMessage(root, WM_ACTIVATEAPP, TRUE, 0);
+  PostMessage(root, WM_ACTIVATE, WA_ACTIVE, 0);
+
+  dbg("FSX input focus repair: root=0x%08X focus=0x%08X fgBefore=0x%08X focusBefore=0x%08X oldFocus=0x%08X fgAfter=0x%08X focusAfter=0x%08X",
+      root, focusWindow, fgBefore, focusBefore, oldFocus,
+      GetForegroundWindow(), GetFocus());
+}
+
 // New SoftTH device instance created
 // Create our fake backbuffer etc.
 IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect3D9Ex *direct3D, HWND hFocusWindowNew, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pp)
@@ -202,6 +248,9 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
 
     pp->BackBufferFormat = newpp.BackBufferFormat;
     createBuffers();
+
+    if(FSXVirtualMonitorActive)
+      fsxRestoreForegroundInput(hFocusWindow);
 
     // Initialize overlay
     OVERLAY_INIT_BLOCK op;
@@ -685,6 +734,9 @@ HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
     {
       pp->BackBufferFormat = newpp.BackBufferFormat;
       createBuffers();
+
+      if(FSXVirtualMonitorActive)
+        fsxRestoreForegroundInput(hFocusWindow);
 
       // Initialize overlay
       OVERLAY_INIT_BLOCK op;
