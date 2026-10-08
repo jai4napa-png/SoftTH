@@ -51,6 +51,7 @@ DEFINE_GUID(IID_SoftTHInvalidRTT, 0x12345542, 0x2134, 0x4545, 0xff, 0xff, 0xba, 
 // #define YIELD_CPU Sleep(1)
 
 volatile int SoftTHActive = 0; // >0 if SoftTH is currently active and resolution is overridden
+volatile int FSXVirtualMonitorActive = 0; // FSX logical multihead fullscreen is active
 bool *SoftTHActiveSquashed = NULL; // Pointer to latest SoftTH device squash variable (TODO: horrible)
 HWND SoftTHPresentWindow = NULL; // FSX-owned window supplied through Present(hDestWindowOverride)
 
@@ -148,6 +149,11 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
   if(windowedMultiheadAtCreate ||
      (isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) && !pp->Windowed))
   {
+    if(!pp->Windowed) {
+      FSXVirtualMonitorActive = 1;
+      dbg("FSX virtual monitor state: ON (logical fullscreen %dx%d)",
+          pp->BackBufferWidth, pp->BackBufferHeight);
+    }
     dbg("Multihead mode %dx%d detected", pp->BackBufferWidth, pp->BackBufferHeight);
 
     loadOverlay();
@@ -611,6 +617,17 @@ int IDirect3DDevice9SoftTH::matchRefresh(D3DPRESENT_PARAMETERS *pp)
 HRESULT IDirect3DDevice9SoftTH::Reset(D3DPRESENT_PARAMETERS* pp)
 {
   dbg("RESET");
+
+  const bool fsxLogicalFullscreenNow =
+      pp && !pp->Windowed &&
+      (isSoftTHmode(pp->BackBufferWidth, pp->BackBufferHeight) ||
+       (config.getNumAdditionalHeads() > 0 && config.overrides.forceResolution));
+  FSXVirtualMonitorActive = fsxLogicalFullscreenNow ? 1 : 0;
+  dbg("FSX virtual monitor state: %s at Reset input %dx%d %s",
+      FSXVirtualMonitorActive ? "ON" : "OFF",
+      pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0,
+      (pp && pp->Windowed) ? "Windowed" : "Fullscreen");
+
   dbg("DIAG Reset input: %dx%d %s refresh=%d hwnd=0x%08X",
       pp->BackBufferWidth, pp->BackBufferHeight,
       pp->Windowed?"Windowed":"Fullscreen",
