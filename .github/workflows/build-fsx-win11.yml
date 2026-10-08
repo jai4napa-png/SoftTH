@@ -28,7 +28,7 @@ jobs:
       - name: Package public beta
         shell: pwsh
         run: |
-          $name = "SoftTH-v3.42-FSX-SE-Win11-Beta-x86"
+          $name = "SoftTH-v3.43-FSX-SE-Win11-Mouse-Test-x86"
           $dir = Join-Path $PWD "dist\$name"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $dir "docs") | Out-Null
@@ -48,11 +48,11 @@ jobs:
       - name: Upload public beta package
         uses: actions/upload-artifact@v4
         with:
-          name: SoftTH-v3.42-FSX-SE-Win11-Beta-x86
-          path: dist/SoftTH-v3.42-FSX-SE-Win11-Beta-x86.zip
+          name: SoftTH-v3.43-FSX-SE-Win11-Mouse-Test-x86
+          path: dist/SoftTH-v3.43-FSX-SE-Win11-Mouse-Test-x86.zip
           if-no-files-found: error
 
-      - name: Publish GitHub prerelease v3.42
+      - name: Publish GitHub prerelease v3.42 (unchanged)
         if: github.ref == 'refs/heads/fsx-win11'
         shell: pwsh
         env:
@@ -63,4 +63,4 @@ jobs:
             Write-Host "Release v3.42 already exists; leaving it unchanged."
             exit 0
           }
-          gh release create "v3.42" "dist\SoftTH-v3.42-FSX-SE-Win11-Beta-x86.zip#SoftTH v3.42 FSX-SE Win11 Beta x86" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "SoftTH v3.42 FSX-SE / Windows 11 Public Beta" --notes-file "RELEASE_NOTES_FSX_WIN11.md" --prerelease
+          gh release create "v3.42" "dist\SoftTH-v3.43-FSX-SE-Win11-Mouse-Test-x86.zip#SoftTH v3.42 FSX-SE Win11 Beta x86" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "SoftTH v3.42 FSX-SE / Windows 11 Public Beta" --notes-file "RELEASE_NOTES_FSX_WIN11.md" --prerelease
