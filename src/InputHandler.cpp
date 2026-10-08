@@ -41,6 +41,7 @@ std::list<DWORD> hookedThreads; // List of all active hooks
 InputHandler ihGlobal; // Global handler. init automatically on dll start
 __declspec(thread) static HHOOK threadHookMsg = NULL;  // Thread-local-storage hook handle
 extern HWND SoftTHPresentWindow;
+extern volatile int FSXVirtualMonitorActive;
 
 static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 {
