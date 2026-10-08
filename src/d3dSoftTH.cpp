@@ -82,6 +82,7 @@ IDirect3DDevice9SoftTH::IDirect3DDevice9SoftTH(IDirect3D9New *parentNew, IDirect
   fsxCachedPositionT = false;
   fsxCachedVertexShader = false;
   fsxCachedStride0 = 0;
+  fsxCachedPositionTOffset = 0;
   fsxCachedTex0W = fsxCachedTex0H = 0;
   fsxCachedPhysicalVSConstReg = -1;
   fsxCachedPhysicalPSConstReg = -1;
@@ -1786,6 +1787,7 @@ HRESULT IDirect3DDevice9SoftTH::SetFVF(DWORD FVF)
   fsxCachedFVF = FVF;
   fsxCachedUsingDecl = false;
   fsxCachedPositionT = ((FVF & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW);
+  fsxCachedPositionTOffset = 0;
   return dev->SetFVF(FVF);
 }
 
@@ -1793,14 +1795,18 @@ HRESULT IDirect3DDevice9SoftTH::SetVertexDeclaration(IDirect3DVertexDeclaration9
 {
   fsxCachedUsingDecl = true;
   fsxCachedPositionT = false;
+  fsxCachedPositionTOffset = 0;
   if(pDecl) {
     D3DVERTEXELEMENT9 elems[MAXD3DDECLLENGTH+1];
     UINT n=MAXD3DDECLLENGTH+1;
     if(SUCCEEDED(pDecl->GetDeclaration(elems,&n))) {
       for(UINT i=0;i<n;i++) {
         if(elems[i].Stream==0xFF) break;
-        if(elems[i].Usage==D3DDECLUSAGE_POSITIONT) {
+        if(elems[i].Stream==0 &&
+           elems[i].Usage==D3DDECLUSAGE_POSITIONT &&
+           elems[i].Type==D3DDECLTYPE_FLOAT4) {
           fsxCachedPositionT=true;
+          fsxCachedPositionTOffset=elems[i].Offset;
           break;
         }
       }
@@ -2037,6 +2043,56 @@ static UINT fsxUPVertexCount(D3DPRIMITIVETYPE pt, UINT primitiveCount)
   }
 }
 
+void IDirect3DDevice9SoftTH::diagFSXPositionTUP(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount, UINT vertexCount, const void *vertices, UINT stride)
+{
+  if(!newbb || !fsxCachedPositionT || !vertices || vertexCount < 1 ||
+     stride < fsxCachedPositionTOffset + sizeof(float)*2 || stride > 256)
+    return;
+
+  // Keep this bounded and getter-free.  We only need enough real vertex data
+  // to prove whether FSX is still submitting a native 1920x1080 screen-space
+  // rectangle after the virtual viewport has been repaired.
+  static int logged = 0;
+  if(logged >= 48) return;
+
+  const BYTE *src=(const BYTE*)vertices;
+  float minX=1.0e30f,minY=1.0e30f,maxX=-1.0e30f,maxY=-1.0e30f;
+  const UINT count=min(vertexCount,(UINT)4096);
+  for(UINT i=0;i<count;i++) {
+    const float *p=(const float*)(src + (size_t)i*stride + fsxCachedPositionTOffset);
+    const float x=p[0], y=p[1];
+    if(!_finite(x) || !_finite(y)) return;
+    if(x<minX) minX=x; if(x>maxX) maxX=x;
+    if(y<minY) minY=y; if(y>maxY) maxY=y;
+  }
+
+  // De-duplicate near-identical ranges/signatures.
+  static int seenCount=0;
+  static struct {int k,pt,prim,vtx,stride,off,x1,y1,x2,y2;} seen[48];
+  const int qx1=(int)floorf(minX+0.5f), qy1=(int)floorf(minY+0.5f);
+  const int qx2=(int)floorf(maxX+0.5f), qy2=(int)floorf(maxY+0.5f);
+  const int kk=(kind && kind[1]=='I')?1:0;
+  for(int i=0;i<seenCount;i++)
+    if(seen[i].k==kk && seen[i].pt==(int)primitiveType &&
+       seen[i].prim==(int)primitiveCount && seen[i].vtx==(int)vertexCount &&
+       seen[i].stride==(int)stride && seen[i].off==(int)fsxCachedPositionTOffset &&
+       seen[i].x1==qx1 && seen[i].y1==qy1 && seen[i].x2==qx2 && seen[i].y2==qy2)
+      return;
+  if(seenCount<48) {
+    seen[seenCount].k=kk; seen[seenCount].pt=(int)primitiveType;
+    seen[seenCount].prim=(int)primitiveCount; seen[seenCount].vtx=(int)vertexCount;
+    seen[seenCount].stride=(int)stride; seen[seenCount].off=(int)fsxCachedPositionTOffset;
+    seen[seenCount].x1=qx1; seen[seenCount].y1=qy1; seen[seenCount].x2=qx2; seen[seenCount].y2=qy2;
+    seenCount++;
+  }
+
+  dbg("DIAG POSUP %s pt=%d prim=%d vtx=%d stride=%d off=%d range=(%.3f,%.3f)-(%.3f,%.3f) physical=%dx%d virtual=%dx%d tex0=%dx%d",
+      kind,primitiveType,primitiveCount,vertexCount,stride,fsxCachedPositionTOffset,
+      minX,minY,maxX,maxY,bbDesc.Width,bbDesc.Height,wantedX,wantedY,
+      fsxCachedTex0W,fsxCachedTex0H);
+  logged++;
+}
+
 bool IDirect3DDevice9SoftTH::scaleFSXPhysicalScreenVertices(const void *src, UINT vertexCount, UINT stride, BYTE **scaledCopy)
 {
   if(scaledCopy) *scaledCopy = NULL;
@@ -2180,6 +2236,8 @@ HRESULT IDirect3DDevice9SoftTH::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType,U
   repairFSXVirtualViewportForDraw();
   const UINT oldStride=fsxCachedStride0;
   fsxCachedStride0=VertexStreamZeroStride;
+  const UINT vertexCount=fsxUPVertexCount(PrimitiveType,PrimitiveCount);
+  diagFSXPositionTUP("DPUP",PrimitiveType,PrimitiveCount,vertexCount,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DPUP",PrimitiveType,PrimitiveCount);
   fsxCachedStride0=oldStride;
   return dev->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
@@ -2190,6 +2248,7 @@ HRESULT IDirect3DDevice9SoftTH::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE Primitiv
   repairFSXVirtualViewportForDraw();
   const UINT oldStride=fsxCachedStride0;
   fsxCachedStride0=VertexStreamZeroStride;
+  diagFSXPositionTUP("DIPUP",PrimitiveType,PrimitiveCount,NumVertices,pVertexStreamZeroData,VertexStreamZeroStride);
   diagFSXCachedDraw("DIPUP",PrimitiveType,PrimitiveCount);
   fsxCachedStride0=oldStride;
   return dev->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount,
