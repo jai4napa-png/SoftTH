@@ -213,20 +213,15 @@ static void pointToVirtual(POINT *point)
     return;
 
   dbgf("hooksSoftTH: pointToVirtual");
-  HWND w = WindowFromPoint(*point);
 
-  POINT op = {point->x, point->y};
-  ScreenToClient(w, &op);
-
+  POINT physical = *point;
   POINT vp; // Virtual bb coordinates
-  if(!inputMapClientToVirtual(w, &op, &vp))
-    return; // Outside SoftTH windows
-  else {
-    dbg_input("hookCall: GetCursorPos: %dx%d -> %dx%d", point->x, point->y, vp.x, vp.y);
-    point->x = vp.x;
-    point->y = vp.y;
-    return;
-  }
+  if(!inputMapScreenToVirtual(&physical, &vp))
+    return; // Outside visible SoftTH heads
+
+  point->x = vp.x;
+  point->y = vp.y;
+  return;
 }
 
 BOOL WINAPI NewLogicalToPhysicalPoint(HWND hWnd, LPPOINT point)
