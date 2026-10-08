@@ -1859,6 +1859,26 @@ static bool fsxLooksLikePhysicalScreenConstant(float v, float w, float h)
   return false;
 }
 
+HRESULT IDirect3DDevice9SoftTH::SetVertexShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
+{
+  return dev->SetVertexShaderConstantF(StartRegister,pConstantData,Vector4fCount);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetPixelShaderConstantF(UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount)
+{
+  return dev->SetPixelShaderConstantF(StartRegister,pConstantData,Vector4fCount);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetFVF(DWORD FVF)
+{
+  return dev->SetFVF(FVF);
+}
+
+HRESULT IDirect3DDevice9SoftTH::SetVertexDeclaration(IDirect3DVertexDeclaration9* pDecl)
+{
+  return dev->SetVertexDeclaration(pDecl);
+}
+
 HRESULT IDirect3DDevice9SoftTH::SetVertexShader(IDirect3DVertexShader9* pShader)
 {
   return dev->SetVertexShader(pShader);
