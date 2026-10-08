@@ -18,13 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifdef _WIN64
-  #define SOFTTH_VERSION "SoftTH v3.31 x64 FSX-Win11 composited primary focus safety"
+  #define SOFTTH_VERSION "SoftTH v3.32 x64 FSX-Win11 screen-space scene composite scaler"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x64 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\331\\X64\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\332\\X64\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X64\\BORN2BEFLYIN"
 #else
-  #define SOFTTH_VERSION "SoftTH v3.31 x86 FSX-Win11 composited primary focus safety"
+  #define SOFTTH_VERSION "SoftTH v3.32 x86 FSX-Win11 screen-space scene composite scaler"
   #define SOFTTH_VERSIONW L"SoftTH v3.00 x86 alpha by born2beflyin"
-  #define SOFTTHDEVID "SOFTTH\\331\\X86\\FSXWIN11"
+  #define SOFTTHDEVID "SOFTTH\\332\\X86\\FSXWIN11"
   #define SOFTTHDEVIDW L"SOFTTH\\300\\X86\\BORN2BEFLYIN"
 #endif
