@@ -102,6 +102,8 @@ interface IDirect3DDevice9SoftTH : public IDirect3DDevice9New
   STDMETHOD(DrawIndexedPrimitive)(THIS_ D3DPRIMITIVETYPE PrimitiveType,INT BaseVertexIndex,UINT MinVertexIndex,UINT NumVertices,UINT startIndex,UINT primCount);
   STDMETHOD(DrawPrimitiveUP)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride);
   STDMETHOD(DrawIndexedPrimitiveUP)(THIS_ D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride);
+  STDMETHOD(SetVertexShaderConstantF)(THIS_ UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount);
+  STDMETHOD(SetPixelShaderConstantF)(THIS_ UINT StartRegister,CONST float* pConstantData,UINT Vector4fCount);
   STDMETHOD(GetSwapChain)(THIS_ UINT iSwapChain,IDirect3DSwapChain9** pSwapChain);
   STDMETHOD_(void, SetGammaRamp)(THIS_ UINT iSwapChain,DWORD Flags,CONST D3DGAMMARAMP* pRamp);
 
@@ -138,6 +140,7 @@ private:
   D3DPRESENT_PARAMETERS lastPp; // Latest present parameters
 
   void adjustPP(D3DPRESENT_PARAMETERS* pp);  // Adjusts present_parameters for SoftTH
+  void diagFSXDrawState(const char *kind, D3DPRIMITIVETYPE primitiveType, UINT primitiveCount, UINT strideHint);
   void repairFSXVirtualViewportForDraw();
   void createBuffers();  // Create new rendertarget etc.
   void destroyBuffers(); // Restore to stock device
