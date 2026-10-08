@@ -41,6 +41,7 @@ DWORD RealDisplayCount = 99;
 static bool isHooked(HMODULE mod);
 void* getHookCall(char *name);
 extern HWND SoftTHPresentWindow;
+extern volatile int FSXVirtualMonitorActive;
 
 //#ifndef _WIN64
 #if 1
@@ -675,6 +676,19 @@ static bool fsxMonitorVirtualizationCaller(HMODULE mod)
   return _stricmp(base,"g2d.dll")==0;
 }
 
+static bool fsxForegroundIsDialog()
+{
+  HWND fg=GetForegroundWindow();
+  if(!fg) return false;
+  DWORD pid=0;
+  GetWindowThreadProcessId(fg,&pid);
+  if(pid != GetCurrentProcessId())
+    return false;
+  char cls[64]={0};
+  GetClassNameA(fg,cls,sizeof(cls));
+  return strcmp(cls,"#32770")==0;
+}
+
 BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   typedef BOOL (WINAPI*OCALL)(HMONITOR, LPMONITORINFOEX);
   const static OCALL origFunc = (OCALL) getHookCall("GetMonitorInfoW");
@@ -688,7 +702,8 @@ BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   SOURCE_MODULE(srcMod);
   if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    if(isHooked(srcMod) && SoftTHActive &&
+    if(isHooked(srcMod) && SoftTHActive && FSXVirtualMonitorActive &&
+       !fsxForegroundIsDialog() &&
        fsxMonitorVirtualizationCaller(srcMod) &&
        (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
       const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
@@ -711,6 +726,16 @@ BOOL WINAPI NewGetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
       }
     }
   }
+
+  if(ret && isHooked(srcMod) && SoftTHActive &&
+     fsxMonitorVirtualizationCaller(srcMod) &&
+     (!FSXVirtualMonitorActive || fsxForegroundIsDialog())) {
+    static bool loggedPhysical=false;
+    if(!loggedPhysical) {
+      dbg("FSX GetMonitorInfoW: returning physical monitor for UI/dialog state");
+      loggedPhysical=true;
+    }
+  }
   return ret;
 }
 
@@ -727,7 +752,8 @@ BOOL WINAPI NewGetMonitorInfoA(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
   SOURCE_MODULE(srcMod);
   if(ret) {
     memcpy(lpmi, &tmp, lpmi->cbSize);
-    if(isHooked(srcMod) && SoftTHActive &&
+    if(isHooked(srcMod) && SoftTHActive && FSXVirtualMonitorActive &&
+       !fsxForegroundIsDialog() &&
        fsxMonitorVirtualizationCaller(srcMod) &&
        (tmp.dwFlags & MONITORINFOF_PRIMARY)) {
       const LONG ow = tmp.rcMonitor.right - tmp.rcMonitor.left;
@@ -747,6 +773,16 @@ BOOL WINAPI NewGetMonitorInfoA(HMONITOR hMonitor, LPMONITORINFOEX lpmi) {
             getModuleName(srcMod));
         logged=true;
       }
+    }
+  }
+
+  if(ret && isHooked(srcMod) && SoftTHActive &&
+     fsxMonitorVirtualizationCaller(srcMod) &&
+     (!FSXVirtualMonitorActive || fsxForegroundIsDialog())) {
+    static bool loggedPhysical=false;
+    if(!loggedPhysical) {
+      dbg("FSX GetMonitorInfoA: returning physical monitor for UI/dialog state");
+      loggedPhysical=true;
     }
   }
   return ret;
