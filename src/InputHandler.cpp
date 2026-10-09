@@ -320,11 +320,13 @@ static bool getTrueClientRect(HWND win, RECT *r)
       h = config.getHead(i);
     if(h->hwnd && h->hwnd == win) {
       // A null destRect means StretchRect targets the entire physical head.
-      // The legacy input mapper had this test reversed, returning a 0x0
-      // client rectangle whenever destRect was omitted (the normal config).
+      // isNullRect() returns NULL for an absent destRect, so test for
+      // a non-NULL pointer. The v3.47 inverted check fell back to the
+      // virtualized GetClientRect (5760x2160) instead of physical
+      // head.screenMode (1920x1080) during FSX fullscreen.
       // That made mouse -> virtual coordinate conversion divide by zero and
       // prevented FSX virtual-cockpit mouse hit testing from lining up.
-      if(!isNullRect(&h->destRect)) {
+      if(isNullRect(&h->destRect)) {
         *r = h->destRect;
       } else {
         r->left = r->top = 0;
@@ -341,6 +343,13 @@ static bool getTrueClientRect(HWND win, RECT *r)
         } else {
           return false;
         }
+      }
+      static bool loggedPrimaryPhysicalRect = false;
+      if(i == -1 && !loggedPrimaryPhysicalRect) {
+        dbg("FSX mouse primary true physical rect: %d,%d-%d,%d (screenMode=%dx%d)",
+            r->left, r->top, r->right, r->bottom,
+            h->screenMode.x, h->screenMode.y);
+        loggedPrimaryPhysicalRect = true;
       }
       return true;
     }
