@@ -188,7 +188,9 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
       // through the physical SoftTH head rectangle. Do not use WindowFromPoint:
       // FSX child/render windows can sit above the device window and caused
       // the old mapper to fail before virtual-cockpit hit testing.
-      bool mapped = inputMapScreenToVirtual(&msg->pt, &vp);
+      bool mapped = (FSXVirtualMonitorActive ?
+          inputMapPhysicalCursorToVirtual(&msg->pt, &vp) :
+          inputMapScreenToVirtual(&msg->pt, &vp));
       if(!mapped) {
         // Do not eat FSX mouse input if a coordinate cannot be mapped. Passing
         // the original message through is safer than converting it to WM_NULL
@@ -200,8 +202,23 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 
       LPARAM lp = MAKELPARAM(vp.x, vp.y);
       msg->lParam = lp;
-      msg->pt.x = vp.x;
-      msg->pt.y = vp.y;
+      // A Win32 MSG.pt is a PHYSICAL desktop point.  FSX needs virtual
+      // coordinates in the mouse message lParam for cockpit hit testing,
+      // but native context-menu placement uses MSG.pt. Preserve the real
+      // point for right-clicks; retain v3.47 behavior for other events.
+      if(FSXVirtualMonitorActive &&
+         (wmsg == WM_RBUTTONDOWN || wmsg == WM_RBUTTONUP ||
+          wmsg == WM_RBUTTONDBLCLK)) {
+        static int loggedRightClick = 0;
+        if(loggedRightClick < 16) {
+          dbg("FSX right-click: keep MSG.pt physical=%d,%d, lParam virtual=%d,%d",
+              msg->pt.x, msg->pt.y, vp.x, vp.y);
+          loggedRightClick++;
+        }
+      } else {
+        msg->pt.x = vp.x;
+        msg->pt.y = vp.y;
+      }
 
       // Send click to overlay
       if(wmsg == WM_LBUTTONDOWN || wmsg == WM_LBUTTONUP || wmsg == WM_MOUSEMOVE)
@@ -390,6 +407,63 @@ bool inputMapVirtualToDesktop(POINT *in, POINT *out)
         return true;
       }
     }
+  }
+  return false;
+}
+
+// FSX fullscreen INPUT ONLY.  Use real Win32 desktop placement plus the
+// configured physical head size.  Do not use GetClientRect/ClientToScreen,
+// which FSX's render-geometry hooks deliberately virtualize to 5760x2160.
+// The legacy inputMapScreenToVirtual and getTrueClientRect remain unchanged
+// for all other v3.47 callers; this avoids the v3.48 layout regression.
+bool inputMapPhysicalCursorToVirtual(POINT *in, POINT *out)
+{
+  if(!in || !out || !FSXVirtualMonitorActive)
+    return false;
+  RECT fullbb = {0, 0, config.main.renderResolution.x, config.main.renderResolution.y};
+  for(int i=-1;i<config.getNumAdditionalHeads();i++) {
+    HEAD *h = (i == -1) ? config.getPrimaryHead() : config.getHead(i);
+    if(!h || !h->hwnd || h->screenMode.x <= 0 || h->screenMode.y <= 0)
+      continue;
+
+    RECT client = {0, 0, h->screenMode.x, h->screenMode.y};
+    RECT *dest = isNullRect(&h->destRect);
+    if(dest)
+      client = *dest;
+    if(client.right <= client.left || client.bottom <= client.top)
+      continue;
+
+    POINT corners[2] = {
+      {client.left, client.top},
+      {client.right, client.bottom}
+    };
+    // MapWindowPoints is intentionally NOT hooked in v3.47.  Its result
+    // is real desktop pixels, regardless of the FSX virtual GetClientRect.
+    SetLastError(0);
+    MapWindowPoints(h->hwnd, NULL, corners, 2);
+    RECT desktop = {corners[0].x, corners[0].y, corners[1].x, corners[1].y};
+    if(!PtInRect(&desktop, *in))
+      continue;
+    const int dw = desktop.right-desktop.left;
+    const int dh = desktop.bottom-desktop.top;
+    if(dw <= 0 || dh <= 0)
+      continue;
+    RECT *sr = (SoftTHActiveSquashed && *SoftTHActiveSquashed) ?
+      &fullbb : &h->sourceRect;
+    const int sw = sr->right-sr->left;
+    const int sh = sr->bottom-sr->top;
+    if(sw <= 0 || sh <= 0)
+      continue;
+    out->x = (int)floor(sr->left + (double)(in->x-desktop.left)*sw/dw + 0.5);
+    out->y = (int)floor(sr->top + (double)(in->y-desktop.top)*sh/dh + 0.5);
+    static int logged = 0;
+    if(logged < 18) {
+      dbg("FSX isolated mouse map: physical=%d,%d head=%d physicalRect=%d,%d-%d,%d virtual=%d,%d",
+          in->x,in->y,i,desktop.left,desktop.top,desktop.right,desktop.bottom,
+          out->x,out->y);
+      logged++;
+    }
+    return true;
   }
   return false;
 }

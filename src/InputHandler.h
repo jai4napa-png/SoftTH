@@ -49,6 +49,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // Mapper functions
 bool inputMapClientToVirtual(HWND win, POINT *in, POINT *out);
 bool inputMapScreenToVirtual(POINT *in, POINT *out);
+bool inputMapPhysicalCursorToVirtual(POINT *in, POINT *out);
 bool inputMapVirtualToDesktop(POINT *in, POINT *out);
 bool inputMapIsDeviceWindow(HWND win);
 char* getMouseEventName(UINT event);

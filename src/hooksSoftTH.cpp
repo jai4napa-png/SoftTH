@@ -296,7 +296,9 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
   {
     POINT physical = *point;
     POINT vp = physical;
-    if(inputMapScreenToVirtual(&physical, &vp))
+    if((FSXVirtualMonitorActive ?
+        inputMapPhysicalCursorToVirtual(&physical, &vp) :
+        inputMapScreenToVirtual(&physical, &vp)))
     {
       fsxLastPhysicalCursor = physical;
       fsxLastVirtualCursor = vp;
@@ -308,35 +310,42 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
   return ret;
 }
 
-static void fsxPopupPointToPhysical(int *x, int *y)
+static void fsxPopupPointToPhysical(HWND hWnd, int *x, int *y)
 {
-  if(!x || !y || !SoftTHActive || !FSXVirtualMonitorActive || !fsxLastCursorWasVirtual)
+  if(!x || !y || !SoftTHActive || !FSXVirtualMonitorActive ||
+     !fsxWindowBelongsToThisProcess(hWnd))
     return;
 
-  // TrackPopupMenu is normally called immediately after GetCursorPos.
-  // Convert only an anchor that matches that virtualized cursor query; this
-  // avoids disturbing menus intentionally placed at other coordinates.
-  if(abs(*x - fsxLastVirtualCursor.x) <= 4 &&
-     abs(*y - fsxLastVirtualCursor.y) <= 4)
+  // Native menus must be anchored in real desktop pixels.  Match the
+  // virtual cursor only when the menu is being opened at the mouse;
+  // leave intentionally positioned FSX menus completely untouched.
+  typedef BOOL (WINAPI* GETCURSORPOS_REAL)(LPPOINT);
+  const static GETCURSORPOS_REAL realCursor =
+      (GETCURSORPOS_REAL)getHookCall("GetCursorPos");
+  POINT physical = {0,0};
+  POINT vp = {0,0};
+  if(realCursor && realCursor(&physical) &&
+     inputMapPhysicalCursorToVirtual(&physical, &vp) &&
+     abs(*x-vp.x) <= 8 && abs(*y-vp.y) <= 8)
   {
     static int logged = 0;
-    if(logged < 12)
-    {
-      dbg("FSX popup virtual->physical: %d,%d -> %d,%d",
-          *x, *y, fsxLastPhysicalCursor.x, fsxLastPhysicalCursor.y);
+    if(logged < 16) {
+      dbg("FSX popup anchor: virtual=%d,%d -> physical=%d,%d",
+          *x,*y,physical.x,physical.y);
       logged++;
     }
-    *x = fsxLastPhysicalCursor.x;
-    *y = fsxLastPhysicalCursor.y;
+    *x = physical.x;
+    *y = physical.y;
   }
 }
+
 
 BOOL WINAPI NewTrackPopupMenu(HMENU hMenu, UINT uFlags, int x, int y,
                               int nReserved, HWND hWnd, const RECT *prcRect)
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, int, HWND, const RECT *);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenu");
-  fsxPopupPointToPhysical(&x, &y);
+  fsxPopupPointToPhysical(hWnd, &x, &y);
   return origFunc(hMenu, uFlags, x, y, nReserved, hWnd, prcRect);
 }
 
@@ -345,7 +354,7 @@ BOOL WINAPI NewTrackPopupMenuEx(HMENU hMenu, UINT uFlags, int x, int y,
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenuEx");
-  fsxPopupPointToPhysical(&x, &y);
+  fsxPopupPointToPhysical(hWnd, &x, &y);
   return origFunc(hMenu, uFlags, x, y, hWnd, lptpm);
 }
 
@@ -468,7 +477,22 @@ BOOL WINAPI NewScreenToClient(HWND hWnd, LPPOINT lpPoint)
   POINT screen = *lpPoint;
   POINT vp = {-1,-1};
   fsxCoordinateHookGuard = true;
-  bool mapped = inputMapScreenToVirtual(&screen, &vp);
+  // FSX uses ScreenToClient for non-mouse layout operations as well.
+  // Use new physical mapping only for a point at the ACTUAL live cursor.
+  // Every other call retains the exact v3.47 conversion/layout behavior.
+  typedef BOOL (WINAPI* GETCURSORPOS_REAL)(LPPOINT);
+  const static GETCURSORPOS_REAL realCursor =
+      (GETCURSORPOS_REAL)getHookCall("GetCursorPos");
+  POINT liveCursor = {0,0};
+  bool liveMousePoint =
+      realCursor && realCursor(&liveCursor) &&
+      abs(screen.x-liveCursor.x) <= 2 &&
+      abs(screen.y-liveCursor.y) <= 2;
+  bool mapped = false;
+  if(liveMousePoint)
+    mapped = inputMapPhysicalCursorToVirtual(&screen, &vp);
+  if(!mapped)
+    mapped = inputMapScreenToVirtual(&screen, &vp);
   fsxCoordinateHookGuard = false;
   if(mapped)
   {
