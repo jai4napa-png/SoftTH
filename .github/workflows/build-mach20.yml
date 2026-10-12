@@ -1,0 +1,30 @@
+name: Build FSX External Mach20 Boost x86
+on:
+  push:
+    branches: [ "fsx-mach20-external-tool" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile standalone x86 EXE
+        shell: cmd
+        run: |
+          for /f "delims=" %%v in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath') do set "VS=%%v"
+          call "%VS%\VC\Auxiliary\Build\vcvars32.bat"
+          if not exist dist mkdir dist
+          cl /nologo /W4 /EHsc /O2 /std:c++17 /DWIN32 /Fe:dist\FSX_Mach20Boost.exe tools\mach20\Mach20Boost.cpp user32.lib kernel32.lib
+      - name: Include guide
+        shell: pwsh
+        run: Copy-Item tools/mach20/README.txt dist/README.txt
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FSX_Mach20Boost_x86_test
+          path: dist/*
+          if-no-files-found: error
