@@ -26,6 +26,7 @@ static constexpr DWORD EVT_THROTTLE_INCR = 201;
 static constexpr DWORD EVT_THROTTLE_DECR = 202;
 static constexpr DWORD EVTFLAG_PRIORITY = 0x10;
 static constexpr DWORD PRIORITY_HIGHEST = 1;
+static constexpr int MAX_BOOST_MACH = 101;
 static constexpr DWORD RECV_SIMOBJECT_DATA = 8;
 static constexpr DWORD RECV_EXCEPTION = 1;
 static constexpr DWORD RECV_QUIT = 3;
@@ -379,13 +380,13 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH 20 POWER-THROTTLE 2.1 — WHEEL REPAIR");
+  puts("FSX MACH 101 POWER-THROTTLE 2.2 — 101 ONE-MACH STEPS");
   puts("Separate program; no SoftTH changes or aircraft file edits.");
-  puts("Mach boost OFF by default; airplane throttle remains normal.");
-  puts("Ctrl+Alt+F4 = Mach 20 engine-power mode ON / OFF");
+  puts("Mach 101 boost OFF by default; airplane throttle remains normal.");
+  puts("Ctrl+Alt+F4 = Mach 101 throttle boost ON / OFF");
   puts("F1 = 0 percent throttle; F4 = 100 percent throttle");
-  puts("F2/F3 = normal steps OFF; 2 percent steps ON");
-  puts("Mouse wheel = native throttle steps OFF; 2 percent steps ON");
+  puts("F2/F3 = normal steps OFF; +1/-1 Mach per press ON");
+  puts("Mouse wheel = native throttle steps OFF; +1/-1 Mach per notch ON");
   puts("Ctrl+Alt+W = wheel mapping ON / OFF");
   puts("Ctrl+Alt+D = diagnostic status and wheel event counters");
   puts("Wheel control works in normal mode even without SimConnect.");
@@ -429,6 +430,9 @@ int main() {
   DWORD lastPidScan=GetTickCount()-3000;
   LONG lastReportedWheel=0;
   double commandedThrottle=0.0;
+  // Boost throttle is quantized to 101 one-Mach increments: 0..101
+  // (102 reachable targets, including zero). No floating-step drift.
+  int boostStep=0;
   bool throttleLocal=false;
   DWORD localCommandTime=0;
   double currentOverrideFps=0.0;
@@ -452,10 +456,20 @@ int main() {
             InterlockedExchange(&gBoost,0);
             puts("Cannot enable: no recent FSX throttle telemetry / SimConnect.");
           } else {
-            puts("MACH 20 POWER ON: F4=full boost; F1=idle; 50 fine steps.");
+            // Start at the CURRENT engine throttle. Press F1 for Mach 0.
+            boostStep=std::max(0,std::min(MAX_BOOST_MACH,
+                       static_cast<int>(std::lround(
+                           telemetry.throttlePct*MAX_BOOST_MACH/100.0))));
+            commandedThrottle=100.0*boostStep/MAX_BOOST_MACH;
+            throttleLocal=true;
+            localCommandTime=GetTickCount();
+            const DWORD value=static_cast<DWORD>(
+              std::lround(boostStep*16383.0/MAX_BOOST_MACH));
+            emitThrottle(EVT_THROTTLE_SET,value);
+            printf("MACH 101 MODE ON: 101 increments, now Mach %d; F4=Mach 101, F1=Mach 0.\n",boostStep);
           }
         } else {
-          puts("MACH 20 POWER OFF: FSX native engine limits restored.");
+          puts("MACH 101 MODE OFF: FSX native engine limits restored.");
           puts("NOTE: Existing high airspeed decays under FSX physics; not instantaneous.");
         }
       } else if(msg.wParam==21) {
@@ -530,7 +544,16 @@ int main() {
               connectedFlight=true;
               lastTelemetry=now;
               if(!throttleLocal || now-localCommandTime>1500) {
-                commandedThrottle=std::max(0.0,std::min(100.0,telemetry.throttlePct));
+                const double pct=std::max(0.0,std::min(100.0,telemetry.throttlePct));
+                if(gBoost) {
+                  // Native joystick/autothrottle changes can still adjust
+                  // the scale, quantized to an integer Mach target.
+                  boostStep=std::max(0,std::min(MAX_BOOST_MACH,
+                     static_cast<int>(std::lround(pct*MAX_BOOST_MACH/100.0))));
+                  commandedThrottle=100.0*boostStep/MAX_BOOST_MACH;
+                } else {
+                  commandedThrottle=pct;
+                }
                 throttleLocal=false;
               } else if(fabs(commandedThrottle-telemetry.throttlePct)<1.1) {
                 throttleLocal=false;
@@ -543,6 +566,7 @@ int main() {
     const LONG endstop=InterlockedExchange(&gEndStop,-1);
     if(endstop==0 || endstop==1) {
       commandedThrottle=endstop==1?100.0:0.0;
+      boostStep=endstop==1?MAX_BOOST_MACH:0;
       throttleLocal=true;
       localCommandTime=now;
     }
@@ -553,13 +577,19 @@ int main() {
     if(gBoost && sc.connection && connectedFlight && gEventMappingReady) {
         LONG ticks=wheel+fineKeys;
         if(ticks) {
-          commandedThrottle=std::max(0.0,std::min(100.0,
-                                    commandedThrottle+2.0*ticks));
+          const int proposed=std::max(0,std::min(MAX_BOOST_MACH,
+                                  boostStep+static_cast<int>(ticks)));
+          // Full throttle remains 16383/100%; Mach target is an
+          // integer, independent of FSX throttle quantization.
           const DWORD throttleValue=static_cast<DWORD>(
-                                   std::floor(commandedThrottle*16383.0/100.0+0.5));
+                       std::lround(proposed*16383.0/MAX_BOOST_MACH));
           if(emitThrottle(EVT_THROTTLE_SET,throttleValue)) {
+            boostStep=proposed;
+            commandedThrottle=100.0*boostStep/MAX_BOOST_MACH;
             localCommandTime=now;
             throttleLocal=true;
+            printf("BOOST TARGET: MACH %d / %d (throttle %.2f%%)\n",
+                   boostStep,MAX_BOOST_MACH,commandedThrottle);
           } else {
             puts("WARNING: cannot set fine throttle.");
           }
@@ -581,21 +611,19 @@ int main() {
       printf("WHEEL %s %ld step(s), mode=%s, output=%s\n",
              wheel>0?"UP":"DOWN",
              static_cast<long>(wheel>0?wheel:-wheel),
-             gBoost?"precision 2%":"normal",
+             gBoost?"1 Mach per step":"normal",
              (sc.connection && gEventMappingReady)?"SimConnect":"F2/F3 fallback");
       lastReportedWheel=now;
     }
     if(gBoost && sc.connection && connectedFlight &&
        now-lastTelemetry<=3500 && now-lastSend>=100) {
-      const double throttleFraction=std::max(0.0,
-                                std::min(1.0,commandedThrottle/100.0));
-      if(throttleFraction<0.0001) {
+      if(boostStep==0) {
         // Idle means NO boost. Do not set the velocity to zero:
         // FSX can coast/decelerate like a normal airplane.
         initializedBoostSpeed=false;
       } else {
         const double sound=soundSpeedFeetPerSecond(telemetry.tempC);
-        const double targetMach=20.0*throttleFraction;
+        const double targetMach=static_cast<double>(boostStep);
         const double targetFps=targetMach*sound;
         if(!initializedBoostSpeed) {
           currentOverrideFps=std::max(0.0,telemetry.bodyZfps);
@@ -617,10 +645,10 @@ int main() {
       lastSend=now;
     }
     if(now-lastReport>=3000 && sc.connection && connectedFlight) {
-      printf("%s | throttle %.1f%% | target Mach %.2f | indicated Mach %.2f | altitude %.0fft\n",
+      printf("%s | throttle %.2f%% | target Mach %d | indicated Mach %.2f | altitude %.0fft\n",
              gBoost?"BOOST ON":"Normal",
              commandedThrottle,
-             gBoost?20.0*commandedThrottle/100.0:0.0,
+             gBoost?boostStep:0,
              telemetry.mach,telemetry.altitudeFt);
       lastReport=now;
     }

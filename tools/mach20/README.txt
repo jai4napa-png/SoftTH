@@ -1,25 +1,34 @@
-FSX MACH 20 POWER-THROTTLE 2.1 — WHEEL REPAIR (EXPERIMENTAL)
+FSX MACH 101 POWER-THROTTLE 2.2 — 101 ONE-MACH STEPS (EXPERIMENTAL)
 ============================================
 A stand-alone Windows application, independent from SoftTH.
 No modification to FSX, SoftTH, aircraft.cfg or scenery files.
 
 CONTROLS
-  Ctrl+Alt+F4  — Toggle Mach20 power on/off (starts OFF)
+  Ctrl+Alt+F4  — Toggle Mach101 power on/off (starts OFF)
   F1           — Idle throttle in either mode (native FSX)
   F4           — Full throttle in either mode (native FSX)
   F2/F3        — Normal FSX throttle increments with boost OFF
-                 Boost ON: precision 2% per step (50 steps idle to full)
+                 Boost ON: +1 Mach for F3, -1 Mach for F2 (101 steps)
   Mouse wheel  — Normal FSX throttle increment events when boost OFF
                  Boost ON: 2% per wheel detent, 50 steps 0%-100%
   Ctrl+Alt+W   — Toggle program wheel throttle control on/off
   Ctrl+Alt+D   — Print wheel-capture diagnostic counters
   Ctrl+Alt+Q   — Exit the controller; leaves flight in FSX
 
-When boost ON, engine 1 throttle percentage is used as the power-control
-input. 100% aims for Mach 20. 50% aims for Mach 10. 0% suspends the
-velocity override without freezing the aircraft; FSX drag can slow it.
+Boost ON exposes 101 one-Mach adjustments from the bottom endpoint:
+F1 = Mach 0 (throttle 0%; no speed override), F4 = Mach 101
+(throttle 100%). Every wheel notch and F3/F2 key press changes the
+BOOST TARGET by exactly +1/-1 Mach, clamped between Mach 0 and Mach 101.
+Example: 0, 1, 2, ..., 100, 101. Including Mach zero gives 102
+distinct positions separated by 101 steps.
+The utility still sets the FSX throttle lever proportionally for the
+existing throttle controls; the extreme airspeed comes from its
+separate speed override, not from physically increasing horsepower.
+When enabled, it takes the current throttle position as its initial
+Mach target. Joystick changes to throttle position are quantized to
+the closest integer Mach.
 Acceleration is rate-limited to about 0.5 Mach per second.
-Deceleration while boosted is at most about 1 Mach per second.
+Deceleration while boosted is limited to about 1 Mach per second.
 OFF disables velocity writes entirely, restoring stock FSX engine
 behavior. This does NOT rewind existing extreme airspeed immediately.
 Load a saved flight to return to a normal flight state if required.
@@ -27,12 +36,12 @@ Load a saved flight to return to a normal flight state if required.
 IMPORTANT: The engine thrust itself is not physically increased; the
 utility overlays a velocity controller based on stock engine throttle.
 The FSX aerodynamic, collision, engine and scenery models are NOT
-capable of realistic Mach 20 for arbitrary aircraft; crashes, loss
+capable of realistic Mach 101 for arbitrary aircraft; crashes, loss
 of control and unstable instruments are possible. Test at high
 altitude over water. Save a flight before using boost.
 
 INSTALLATION
-  1. Fully EXIT the previous FSX_Mach20Boost.exe instance; the older
+  1. Fully EXIT the previous FSX_Mach101Boost.exe instance; the older
      1.2 portable version does not need uninstalling.
   2. EXIT the independent AutoHotkey mouse-wheel-throttle script, or
      wheel inputs may be doubled/intercepted by the old script.
@@ -52,7 +61,7 @@ The built-in wheel does not require AutoHotkey.
 
 This is a beta. Validate the SimConnect throttle percentage and
 Mach indication against the display; a successful API call does
-not prove that FSX achieves Mach 20.
+not prove that FSX achieves Mach 101.
 
 Source: tools/mach20/Mach20Boost.cpp
 Build: GitHub Actions, Windows x86/MSVC.
@@ -74,3 +83,7 @@ number of wheel messages seen/captured, command counts, and connection.
 Wheel hook can require the same administrator elevation as FSX.
 If Windows reports no wheel messages, it may be a driver/DirectInput
 issue; the status output distinguishes that case.
+
+V2.2 CHANGE: Boost scale is Mach 0-101, 101 increments of Mach 1;
+Ctrl+Alt+F4 toggles. Old v2.1 wheel capture fallback and diagnostics
+remain. With toggle OFF, F1-F4 and wheel use regular aircraft limits.
