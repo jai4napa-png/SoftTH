@@ -2,7 +2,9 @@
 // No aircraft.cfg or SoftTH DLL changes. Build with MSVC x86 on Windows.
 // Public-domain dedication for this small standalone utility.
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
