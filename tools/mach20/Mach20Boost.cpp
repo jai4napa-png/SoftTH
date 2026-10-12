@@ -115,6 +115,8 @@ static DWORD discoverFSXProcess() {
   return pid;
 }
 
+static bool focusedFSX(); // forward declaration for non-activating overlay
+
 static LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT message,
                                           WPARAM wp, LPARAM lp) {
   switch(message) {
