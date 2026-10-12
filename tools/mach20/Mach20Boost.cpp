@@ -564,7 +564,6 @@ int main() {
             puts("WARNING: cannot set fine throttle.");
           }
         }
-      }
     } else if(wheel) {
       // Normal mode wheel works with OR WITHOUT SimConnect. Prefer simulator
       // events if the connection is healthy; otherwise inject FSX's F2/F3
