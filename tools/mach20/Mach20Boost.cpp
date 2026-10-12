@@ -5,6 +5,8 @@
 #define NOMINMAX
 #include <windows.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
+#include <cwchar>
 #include <cstddef>
 #include <cmath>
 #include <cstdio>
@@ -70,65 +72,98 @@ static HHOOK gMouseHook = nullptr;
 static HHOOK gKeyHook = nullptr;
 static int gWheelRemainder = 0;
 static bool gEventMappingReady = false;
+static volatile DWORD gFSXPid = 0;
+static volatile LONG gWheelSeen = 0;
+static volatile LONG gWheelAccepted = 0;
+static volatile LONG gWheelSuppressed = 0;
+static volatile LONG gWheelFallbackEvents = 0;
+static volatile LONG gWheelSimConnectEvents = 0;
+static volatile LONG gMouseScrollClicks = 0;
 
-static bool fsxWindow(HWND window) {
-  if(!window) return false;
+// The foreground process is cached from the process list. Do NOT call
+// OpenProcess/QueryFullProcessImageName for every wheel event: low-level
+// hooks have a strict timeout and can be silently removed by Windows.
+static DWORD discoverFSXProcess() {
+  HANDLE snap=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+  if(snap==INVALID_HANDLE_VALUE)return 0;
+  PROCESSENTRY32W ent={};
+  ent.dwSize=sizeof(ent);
   DWORD pid=0;
-  GetWindowThreadProcessId(window,&pid);
-  if(!pid) return false;
-  HANDLE proc=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
-  if(!proc) return false;
-  wchar_t path[MAX_PATH]={};
-  DWORD len=MAX_PATH;
-  bool ok=QueryFullProcessImageNameW(proc,0,path,&len)!=0;
-  CloseHandle(proc);
-  if(!ok) return false;
-  const wchar_t* name=wcsrchr(path,L'\\');
-  name=name?name+1:path;
-  return _wcsicmp(name,L"fsx.exe")==0 || _wcsicmp(name,L"fsx_softth.exe")==0;
+  if(Process32FirstW(snap,&ent)) {
+    do {
+      if(_wcsicmp(ent.szExeFile,L"fsx_softth.exe")==0 ||
+         _wcsicmp(ent.szExeFile,L"fsx.exe")==0) {
+        pid=ent.th32ProcessID;
+        break;
+      }
+    } while(Process32NextW(snap,&ent));
+  }
+  CloseHandle(snap);
+  return pid;
 }
 static bool focusedFSX() {
+  const DWORD fsxPid=gFSXPid;
+  if(!fsxPid)return false;
   HWND window=GetForegroundWindow();
-  if(!fsxWindow(window))return false;
-  char cls[64]={};
+  if(!window)return false;
+  DWORD fgPid=0;
+  GetWindowThreadProcessId(window,&fgPid);
+  if(fgPid!=fsxPid)return false;
+  char cls[32]={};
   GetClassNameA(window,cls,sizeof(cls));
   return strcmp(cls,"#32770")!=0 && strcmp(cls,"#32768")!=0;
 }
 static LRESULT CALLBACK MouseHook(int n,WPARAM msg,LPARAM data) {
-  if(n==HC_ACTION && msg==WM_MOUSEWHEEL && gWheelActive &&
-     sc.connection && gEventMappingReady && focusedFSX()) {
-    const auto* info=reinterpret_cast<const MSLLHOOKSTRUCT*>(data);
-    HWND over=WindowFromPoint(info->pt);
-    if(fsxWindow(over)) {
+  if(n==HC_ACTION && msg==WM_MOUSEWHEEL) {
+    InterlockedIncrement(&gWheelSeen);
+    if(gWheelActive && focusedFSX()) {
+      const auto* info=reinterpret_cast<const MSLLHOOKSTRUCT*>(data);
       const int delta=static_cast<short>(HIWORD(info->mouseData));
       gWheelRemainder+=delta;
       const LONG detents=gWheelRemainder/120;
       gWheelRemainder-=detents*120;
-      if(detents)InterlockedExchangeAdd(&gWheelSteps,detents);
-      return 1; // suppress FSX's usual zoom for wheel-throttle
+      if(detents) {
+        InterlockedExchangeAdd(&gWheelSteps,detents);
+        InterlockedExchangeAdd(&gMouseScrollClicks,detents);
+        InterlockedIncrement(&gWheelAccepted);
+      }
+      // Suppress native wheel zoom whenever this controller is active over
+      // FSX. Do not require SimConnect or mouse hit testing in this callback.
+      InterlockedIncrement(&gWheelSuppressed);
+      return 1;
     }
   }
   return CallNextHookEx(gMouseHook,n,msg,data);
 }
 static LRESULT CALLBACK KeyHook(int n,WPARAM msg,LPARAM data) {
   if(n==HC_ACTION && (msg==WM_KEYDOWN || msg==WM_SYSKEYDOWN) &&
-     sc.connection && focusedFSX() &&
+     focusedFSX() &&
      !(GetAsyncKeyState(VK_CONTROL)&0x8000) &&
      !(GetAsyncKeyState(VK_MENU)&0x8000)) {
     const auto* info=reinterpret_cast<const KBDLLHOOKSTRUCT*>(data);
+    if(info->flags & LLKHF_INJECTED)
+      return CallNextHookEx(gKeyHook,n,msg,data);
     if(info->vkCode==VK_F1) {
       InterlockedExchange(&gEndStop,0);
     } else if(info->vkCode==VK_F4) {
       InterlockedExchange(&gEndStop,1);
     } else if(gBoost && (info->vkCode==VK_F2 || info->vkCode==VK_F3)) {
-      // Intercept F2/F3 only when boost is on; give them the same 2%
-      // finesse as the mouse wheel. With boost off FSX receives F2/F3.
       InterlockedExchangeAdd(&gFineKeySteps,info->vkCode==VK_F3?1:-1);
       return 1;
     }
   }
   return CallNextHookEx(gKeyHook,n,msg,data);
 }
+static bool sendThrottleKey(UINT vk) {
+  INPUT keys[2]={};
+  for(int i=0;i<2;++i) {
+    keys[i].type=INPUT_KEYBOARD;
+    keys[i].ki.wVk=static_cast<WORD>(vk);
+    keys[i].ki.dwFlags=i==1?KEYEVENTF_KEYUP:0;
+  }
+  return SendInput(2,keys,sizeof(INPUT))==2;
+}
+
 static bool emitThrottle(DWORD eventId,DWORD value=0) {
   if(!sc.connection || !gEventMappingReady)return false;
   return SUCCEEDED(sc.Transmit(sc.connection,OBJ_USER,eventId,value,
@@ -344,7 +379,7 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH 20 POWER-THROTTLE 2.0 — EXPERIMENTAL");
+  puts("FSX MACH 20 POWER-THROTTLE 2.1 — WHEEL REPAIR");
   puts("Separate program; no SoftTH changes or aircraft file edits.");
   puts("Mach boost OFF by default; airplane throttle remains normal.");
   puts("Ctrl+Alt+F4 = Mach 20 engine-power mode ON / OFF");
@@ -352,33 +387,47 @@ int main() {
   puts("F2/F3 = normal steps OFF; 2 percent steps ON");
   puts("Mouse wheel = native throttle steps OFF; 2 percent steps ON");
   puts("Ctrl+Alt+W = wheel mapping ON / OFF");
+  puts("Ctrl+Alt+D = diagnostic status and wheel event counters");
+  puts("Wheel control works in normal mode even without SimConnect.");
   puts("Ctrl+Alt+Q = quit");
   puts("");
   puts("NOTE: Only a simulation speed override, NOT accurate Mach 20 physics.");
   puts("IMPORTANT: EXIT your previous Mach Boost program and wheel AutoHotkey");
   puts("script so there are no competing throttle controllers.");
   puts("");
-  if(!loadSimConnect()) { puts("Press Enter to close."); getchar();return 2; }
+  const bool simconnectAvailable=loadSimConnect();
+  if(!simconnectAvailable) {
+    puts("SimConnect not available: Mach boost disabled, but the mouse");
+    puts("wheel can still control normal FSX throttle via synthetic F2/F3.");
+    puts("Repair_SimConnect.cmd remains available in this folder.");
+  }
 
   const UINT mods=MOD_CONTROL|MOD_ALT|MOD_NOREPEAT;
   const struct {int id;UINT key;} bindings[]={
-    {20,VK_F4},{21,'W'},{22,'Q'}
+    {20,VK_F4},{21,'W'},{22,'Q'},{23,'D'}
   };
   for(const auto& h: bindings) {
     if(!RegisterHotKey(NULL,h.id,mods,h.key))
       printf("WARNING: Ctrl+Alt+%s shortcut unavailable (Windows %lu).\n",
-             h.id==20?"F4":h.id==21?"W":"Q",
+             h.id==20?"F4":h.id==21?"W":h.id==22?"Q":"D",
              static_cast<unsigned long>(GetLastError()));
   }
   gMouseHook=SetWindowsHookExW(WH_MOUSE_LL,MouseHook,GetModuleHandleW(NULL),0);
   gKeyHook=SetWindowsHookExW(WH_KEYBOARD_LL,KeyHook,GetModuleHandleW(NULL),0);
-  if(!gMouseHook) puts("WARNING: wheel hook unavailable.");
-  if(!gKeyHook) puts("WARNING: fine F2/F3 keyboard hook unavailable.");
+  if(!gMouseHook)
+    printf("WARNING: wheel hook unavailable, Windows error %lu.\n",
+           static_cast<unsigned long>(GetLastError()));
+  else puts("Wheel low-level hook INSTALLED: switch FSX to foreground and scroll.");
+  if(!gKeyHook)
+    printf("WARNING: fine F2/F3 keyboard hook unavailable, Windows error %lu.\n",
+           static_cast<unsigned long>(GetLastError()));
   puts("Waiting for FSX SimConnect connection. Start/load your flight.");
 
   Telemetry telemetry;
   bool connectedFlight=false;
   DWORD lastTelemetry=0,lastConnectTry=GetTickCount()-3000,lastSend=0,lastReport=0;
+  DWORD lastPidScan=GetTickCount()-3000;
+  LONG lastReportedWheel=0;
   double commandedThrottle=0.0;
   bool throttleLocal=false;
   DWORD localCommandTime=0;
@@ -417,10 +466,31 @@ int main() {
       } else if(msg.wParam==22) {
         InterlockedExchange(&gBoost,0);
         quit=true;
+      } else if(msg.wParam==23) {
+        DWORD fgPid=0;
+        HWND fg=GetForegroundWindow();
+        if(fg) GetWindowThreadProcessId(fg,&fgPid);
+        printf("DIAGNOSTIC: FSX pid=%lu foreground pid=%lu; wheel hook=%s; enabled=%ld; boost=%ld; SimConnect=%s; mapped=%d; telemetry=%d\n",
+               static_cast<unsigned long>(gFSXPid),
+               static_cast<unsigned long>(fgPid),
+               gMouseHook?"yes":"NO",
+               static_cast<long>(gWheelActive),static_cast<long>(gBoost),
+               sc.connection?"connected":"disconnected",
+               gEventMappingReady?1:0, connectedFlight?1:0);
+        printf("Wheel messages seen=%ld, intercepted=%ld, increments=%ld, SimConnect sent=%ld, F2/F3 fallback=%ld\n",
+               static_cast<long>(gWheelSeen),
+               static_cast<long>(gWheelAccepted),
+               static_cast<long>(gMouseScrollClicks),
+               static_cast<long>(gWheelSimConnectEvents),
+               static_cast<long>(gWheelFallbackEvents));
       }
     }
     DWORD now=GetTickCount();
-    if(!sc.connection && now-lastConnectTry>=3000) {
+    if(now-lastPidScan>=1500) {
+      gFSXPid=discoverFSXProcess();
+      lastPidScan=now;
+    }
+    if(simconnectAvailable && !sc.connection && now-lastConnectTry>=3000) {
       lastConnectTry=now;
       if(connect()) {
         connectedFlight=false;
@@ -480,8 +550,7 @@ int main() {
     LONG fineKeys=InterlockedExchange(&gFineKeySteps,0);
     wheel=std::max(-20L,std::min(20L,wheel));
     fineKeys=std::max(-20L,std::min(20L,fineKeys));
-    if(sc.connection && connectedFlight && gEventMappingReady) {
-      if(gBoost) {
+    if(gBoost && sc.connection && connectedFlight && gEventMappingReady) {
         LONG ticks=wheel+fineKeys;
         if(ticks) {
           commandedThrottle=std::max(0.0,std::min(100.0,
@@ -495,12 +564,27 @@ int main() {
             puts("WARNING: cannot set fine throttle.");
           }
         }
-      } else if(wheel) {
-        // When the power-boost toggle is off, the wheel sends ordinary FSX
-        // throttle increment/decrement commands without changing aircraft max.
-        const DWORD evt=wheel>0?EVT_THROTTLE_INCR:EVT_THROTTLE_DECR;
-        for(LONG n=0;n<std::abs(wheel);n++) emitThrottle(evt);
       }
+    } else if(wheel) {
+      // Normal mode wheel works with OR WITHOUT SimConnect. Prefer simulator
+      // events if the connection is healthy; otherwise inject FSX's F2/F3
+      // keystrokes, exactly like the independent AHK wheel utility.
+      const DWORD evt=wheel>0?EVT_THROTTLE_INCR:EVT_THROTTLE_DECR;
+      const UINT vk=wheel>0?VK_F3:VK_F2;
+      for(LONG n=0;n<std::abs(wheel);n++) {
+        const bool sent=sc.connection && gEventMappingReady && emitThrottle(evt);
+        if(sent) InterlockedIncrement(&gWheelSimConnectEvents);
+        else if(sendThrottleKey(vk)) InterlockedIncrement(&gWheelFallbackEvents);
+        else puts("WARNING: throttle fallback SendInput failed (FSX must be foreground, with compatible admin privileges).");
+      }
+    }
+    if(wheel && now-lastReportedWheel>450) {
+      printf("WHEEL %s %ld step(s), mode=%s, output=%s\n",
+             wheel>0?"UP":"DOWN",
+             static_cast<long>(wheel>0?wheel:-wheel),
+             gBoost?"precision 2%":"normal",
+             (sc.connection && gEventMappingReady)?"SimConnect":"F2/F3 fallback");
+      lastReportedWheel=now;
     }
     if(gBoost && sc.connection && connectedFlight &&
        now-lastTelemetry<=3500 && now-lastSend>=100) {
