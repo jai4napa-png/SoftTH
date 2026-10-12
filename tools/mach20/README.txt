@@ -1,8 +1,19 @@
-FSX MACH BOOST — EXPERIMENTAL TEST
+FSX MACH BOOST + MOUSE-WHEEL THROTTLE — EXPERIMENTAL TEST
 ===================================
 Run FSX Steam Edition, load a flight, then double-click FSX_Mach20Boost.exe.
 This is a separate external controller; never put it in the FSX game folder.
 It does not alter SoftTH or your calibrated multi-monitor configuration.
+
+Wheel UP: increase engine throttle by one FSX increment
+Wheel DOWN: decrease engine throttle by one FSX increment
+Ctrl+Alt+W: toggle mouse-wheel throttle on/off (ON by default)
+Wheel works during normal flight even with Mach boost OFF.
+It works only while FSX is active and the pointer is over FSX, not
+while scrolling in another program or over FSX menus/dialogs.
+Wheel messages are consumed within FSX when wheel throttle is on;
+FSX's usual wheel zoom/cockpit-knob scrolling is consequently disabled.
+If you previously launched FSX_Mouse_Wheel_Throttle.ahk, exit that old
+AutoHotkey script so you don't trigger double increments.
 
 Ctrl+Alt+1 => Mach 1
 Ctrl+Alt+2 => Mach 2
@@ -30,3 +41,11 @@ Requirements:
 
 Source: tools/mach20/Mach20Boost.cpp
 Build: .github/workflows/build-mach20.yml, GitHub Actions Windows x86
+
+This build sends documented FSX SimConnect THROTTLE_INCR and
+THROTTLE_DECR aircraft events for each wheel detent. Actual increments
+may depend on the aircraft and autopilot/autothrottle behavior.
+Wheel throttle may have little effect on AIRSPEED while Mach boost is ON,
+because Mach boost imposes separate aircraft velocity overrides.
+If the wheel hook fails, run the program as Administrator only if you
+also run FSX as Administrator.

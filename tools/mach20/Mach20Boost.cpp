@@ -18,6 +18,11 @@ static constexpr DWORD PERIOD_SECOND = 4;
 static constexpr DWORD DEF_READ = 100;
 static constexpr DWORD DEF_WRITE = 101;
 static constexpr DWORD REQ_READ = 100;
+static constexpr DWORD EVT_THROTTLE_UP = 200;
+static constexpr DWORD EVT_THROTTLE_DOWN = 201;
+static constexpr DWORD SIMCONNECT_GROUP_PRIORITY_HIGHEST_VALUE = 1;
+static constexpr DWORD SIMCONNECT_EVENT_FLAG_PRIORITY = 0x10;
+static constexpr int WHEEL_DETENT = 120;
 static constexpr DWORD RECV_SIMOBJECT_DATA = 8;
 static constexpr DWORD RECV_EXCEPTION = 1;
 static constexpr DWORD RECV_QUIT = 3;
@@ -46,8 +51,85 @@ struct ScApi {
   HRESULT (WINAPI *Request)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD) = nullptr;
   HRESULT (WINAPI *Set)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD,const void*) = nullptr;
   HRESULT (WINAPI *Next)(HANDLE,ScRecv**,DWORD*) = nullptr;
+  HRESULT (WINAPI *MapEvent)(HANDLE,DWORD,const char*) = nullptr;
+  HRESULT (WINAPI *Transmit)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD) = nullptr;
 };
 static ScApi sc;
+
+// Wheel events are captured on this program's UI thread and forwarded to
+// the existing SimConnect connection from the main loop, never from the hook.
+static HHOOK gWheelHook = nullptr;
+static LONG gWheelEnabled = 1; // on by default, independently of Mach boost
+static LONG gWheelSteps = 0;
+static int gWheelRemainder = 0;
+static bool gThrottleMapped = false;
+
+// Only change throttle while FSX has focus AND the pointer is over one
+// of its windows (including secondary SoftTH output windows).
+static bool windowIsFSX(HWND hwnd)
+{
+  if(!hwnd) return false;
+  DWORD pid = 0;
+  GetWindowThreadProcessId(hwnd,&pid);
+  if(!pid) return false;
+  HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
+  if(!p) return false;
+  wchar_t name[MAX_PATH] = {};
+  DWORD len = MAX_PATH;
+  const BOOL ok = QueryFullProcessImageNameW(p,0,name,&len);
+  CloseHandle(p);
+  if(!ok) return false;
+  const wchar_t* slash = wcsrchr(name,L'\\');
+  const wchar_t* base = slash ? slash+1 : name;
+  return _wcsicmp(base,L"fsx_softth.exe")==0 || _wcsicmp(base,L"fsx.exe")==0;
+}
+static bool cursorIsOverFSX()
+{
+  HWND fg = GetForegroundWindow();
+  if(!windowIsFSX(fg)) return false;
+  char cls[32] = {};
+  GetClassNameA(fg,cls,sizeof(cls));
+  if(strcmp(cls,"#32770")==0 || strcmp(cls,"#32768")==0) return false;
+  POINT pt = {};
+  if(!GetCursorPos(&pt)) return false;
+  HWND hovered = WindowFromPoint(pt);
+  if(!windowIsFSX(hovered)) return false;
+  GetClassNameA(hovered,cls,sizeof(cls));
+  if(strcmp(cls,"#32770")==0 || strcmp(cls,"#32768")==0) return false;
+  return true;
+}
+
+static LRESULT CALLBACK wheelProc(int code, WPARAM wp, LPARAM lp)
+{
+  if(code == HC_ACTION && wp == WM_MOUSEWHEEL && gWheelEnabled &&
+     gThrottleMapped && sc.connection && cursorIsOverFSX()) {
+    const auto* e = reinterpret_cast<const MSLLHOOKSTRUCT*>(lp);
+    const int delta = static_cast<short>(HIWORD(e->mouseData));
+    gWheelRemainder += delta;
+    const int steps = gWheelRemainder/WHEEL_DETENT;
+    gWheelRemainder -= steps*WHEEL_DETENT;
+    if(steps) {
+      // Bound the queue so an unusually fast wheel cannot create
+      // a long-delayed throttle change.
+      const LONG old = InterlockedExchangeAdd(&gWheelSteps,steps);
+      if(old > 40 || old < -40)
+        InterlockedExchange(&gWheelSteps,steps);
+    }
+    return 1; // suppress native FSX wheel action while enabled
+  }
+  return CallNextHookEx(gWheelHook,code,wp,lp);
+}
+static bool installWheelHook()
+{
+  gWheelHook = SetWindowsHookExW(WH_MOUSE_LL,wheelProc,GetModuleHandleW(NULL),0);
+  if(!gWheelHook) {
+    printf("Mouse wheel hook failed (Windows error %lu). Run with matching FSX elevation.\n",
+          static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
+  puts("Wheel throttle enabled: UP increases, DOWN decreases.");
+  return true;
+}
 
 template<typename P>
 bool fetch(P& slot, const char* name) {
@@ -103,9 +185,14 @@ static bool loadSimConnect() {
          fetch(sc.Add,"SimConnect_AddToDataDefinition") &&
          fetch(sc.Request,"SimConnect_RequestDataOnSimObject") &&
          fetch(sc.Set,"SimConnect_SetDataOnSimObject") &&
-         fetch(sc.Next,"SimConnect_GetNextDispatch");
+         fetch(sc.Next,"SimConnect_GetNextDispatch") &&
+         fetch(sc.MapEvent,"SimConnect_MapClientEventToSimEvent") &&
+         fetch(sc.Transmit,"SimConnect_TransmitClientEvent");
 }
 static void disconnect() {
+  gThrottleMapped = false;
+  InterlockedExchange(&gWheelSteps,0);
+  gWheelRemainder = 0;
   if(sc.connection) {
     sc.Close(sc.connection);
     sc.connection = nullptr;
@@ -130,6 +217,9 @@ static bool connect() {
                    DATA_FLOAT64,0.0f,0xFFFFFFFF))) {
     puts("Unable to define aircraft speed control."); disconnect(); return false;
   }
+  gThrottleMapped = SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_UP,"THROTTLE_INCR")) &&
+                    SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_DOWN,"THROTTLE_DECR"));
+  if(!gThrottleMapped) puts("WARNING: FSX throttle wheel mapping failed.");
   if(FAILED(sc.Request(sc.connection,REQ_READ,DEF_READ,OBJ_USER,PERIOD_SECOND,0,0,0,0))) {
     puts("Unable to request live flight telemetry."); disconnect(); return false;
   }
@@ -147,7 +237,7 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH BOOST 1.0 — EXPERIMENTAL");
+  puts("FSX MACH BOOST + WHEEL THROTTLE 1.1 — EXPERIMENTAL");
   puts("Works separately from SoftTH. No aircraft files are edited.");
   puts("Start FSX-SE and load a flight before enabling the boost.");
   puts("CAUTION: Mach 20 can overwhelm FSX physics/scenery and cause a crash.");
@@ -156,13 +246,16 @@ int main() {
   puts("Ctrl+Alt+2 = Mach 2 target");
   puts("Ctrl+Alt+5 = Mach 5 target");
   puts("Ctrl+Alt+0 = Mach 20 target");
+  puts("Mouse wheel UP = throttle increase (all engines)");
+  puts("Mouse wheel DOWN = throttle decrease (all engines)");
+  puts("Ctrl+Alt+W = wheel throttle ON / OFF (starts ON)");
   puts("Ctrl+Alt+M = toggle boost ON / OFF");
   puts("Ctrl+Alt+Q = exit and restore original pre-boost speed");
   puts("");
   if(!loadSimConnect()) { puts("Press Enter to close."); getchar(); return 2; }
   const UINT hotkeyMods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
   const struct { int id, key; } hotkeys[] = {
-    {1,'1'}, {2,'2'}, {5,'5'}, {20,'0'}, {99,'M'}, {100,'Q'}
+    {1,'1'}, {2,'2'}, {5,'5'}, {20,'0'}, {98,'W'}, {99,'M'}, {100,'Q'}
   };
   for(const auto& hk : hotkeys)
     if(!RegisterHotKey(NULL,hk.id,hotkeyMods,hk.key))
@@ -173,6 +266,9 @@ int main() {
   double preBoostSpeed=0;
   DWORD lastTelemetry=0, lastConnectAttempt=0, lastWrite=0, lastPrint=0;
   puts("Default target Mach 2. Press Ctrl+Alt+0 for Mach 20.");
+  const bool wheelHookOk = installWheelHook();
+  if(!wheelHookOk)
+    puts("Wheel control unavailable; Mach boost hotkeys will still work.");
 
   while(!exitProgram) {
     MSG msg;
@@ -183,6 +279,12 @@ int main() {
         case 2: targetMach=2;break;
         case 5: targetMach=5;break;
         case 20: targetMach=20;break;
+        case 98:
+          gWheelEnabled = gWheelEnabled ? 0 : 1;
+          InterlockedExchange(&gWheelSteps,0);
+          gWheelRemainder = 0;
+          printf("Wheel throttle %s\n",gWheelEnabled?"ON":"OFF");
+          break;
         case 99:
           if(boost) {
             boost=false;
@@ -239,6 +341,24 @@ int main() {
         }
       }
     }
+    // Process discrete detents as native FSX engine throttle events.
+    // This does not affect Mach boost selection or virtual mouse coordinates.
+    if(sc.connection && gThrottleMapped) {
+      LONG steps = InterlockedExchange(&gWheelSteps,0);
+      if(steps > 16) steps = 16;
+      if(steps < -16) steps = -16;
+      const DWORD evt = steps>0 ? EVT_THROTTLE_UP : EVT_THROTTLE_DOWN;
+      const LONG count = steps>=0 ? steps : -steps;
+      for(LONG k=0;k<count;k++) {
+        HRESULT hr=sc.Transmit(sc.connection,OBJ_USER,evt,0,
+                       SIMCONNECT_GROUP_PRIORITY_HIGHEST_VALUE,
+                       SIMCONNECT_EVENT_FLAG_PRIORITY);
+        if(FAILED(hr)) {
+          puts("WARNING: SimConnect throttle command failed.");
+          break;
+        }
+      }
+    }
     if(boost && sc.connection && haveTelemetry && now-lastTelemetry<4000 &&
        now-lastWrite>=100) {
       const double fps=targetMach*soundSpeedFeetPerSecond(telemetry.tempC);
@@ -258,6 +378,7 @@ int main() {
     }
     Sleep(15);
   }
+  if(gWheelHook) UnhookWindowsHookEx(gWheelHook);
   for(const auto& hk: hotkeys) UnregisterHotKey(NULL,hk.id);
   disconnect();
   if(sc.dll) FreeLibrary(sc.dll);
