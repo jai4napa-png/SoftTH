@@ -310,33 +310,53 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
   return ret;
 }
 
-static void fsxPopupPointToPhysical(HWND hWnd, int *x, int *y)
+// FSX menus should remain accessible even when a right click originates on
+// one of the secondary SoftTH heads.  Put the popup in the CENTER OF THE
+// LAPTOP'S REAL PHYSICAL MONITOR.  This is entirely independent of the
+// 5760x2160 virtual render canvas, mouse hit-testing, and the sourceRects.
+// TrackPopupMenu and TrackPopupMenuEx both accept screen-space coordinates.
+static bool fsxPopupAtLaptopCenter(HWND hWnd, int *x, int *y, UINT *flags)
 {
-  if(!x || !y || !SoftTHActive || !FSXVirtualMonitorActive ||
-     !fsxWindowBelongsToThisProcess(hWnd))
-    return;
+  if(!x || !y || !flags || !SoftTHActive || !FSXVirtualMonitorActive ||
+     fsxForegroundIsDialog() || !fsxWindowBelongsToThisProcess(hWnd))
+    return false;
 
-  // Native menus must be anchored in real desktop pixels.  Match the
-  // virtual cursor only when the menu is being opened at the mouse;
-  // leave intentionally positioned FSX menus completely untouched.
-  typedef BOOL (WINAPI* GETCURSORPOS_REAL)(LPPOINT);
-  const static GETCURSORPOS_REAL realCursor =
-      (GETCURSORPOS_REAL)getHookCall("GetCursorPos");
-  POINT physical = {0,0};
-  POINT vp = {0,0};
-  if(realCursor && realCursor(&physical) &&
-     inputMapPhysicalCursorToVirtual(&physical, &vp) &&
-     abs(*x-vp.x) <= 8 && abs(*y-vp.y) <= 8)
-  {
-    static int logged = 0;
-    if(logged < 16) {
-      dbg("FSX popup anchor: virtual=%d,%d -> physical=%d,%d",
-          *x,*y,physical.x,physical.y);
-      logged++;
-    }
-    *x = physical.x;
-    *y = physical.y;
+  HEAD *primary = config.getPrimaryHead();
+  if(!primary || !primary->hwnd)
+    return false;
+
+  HMONITOR laptopMonitor = MonitorFromWindow(primary->hwnd, MONITOR_DEFAULTTOPRIMARY);
+  MONITORINFO info;
+  ZeroMemory(&info, sizeof(info));
+  info.cbSize = sizeof(info);
+  if(!laptopMonitor || !GetMonitorInfoA(laptopMonitor, &info))
+    return false;
+
+  // Work area keeps menus away from the Windows taskbar.
+  RECT area = info.rcWork;
+  if(area.right <= area.left || area.bottom <= area.top)
+    area = info.rcMonitor;
+  if(area.right <= area.left || area.bottom <= area.top)
+    return false;
+
+  const int oldX = *x, oldY = *y;
+  *x = area.left + (area.right-area.left)/2;
+  *y = area.top  + (area.bottom-area.top)/2;
+
+  // Center the MENU itself around the anchor, not merely its upper-left
+  // corner. Leave all unrelated TrackPopupMenu flags intact.
+  *flags &= ~(TPM_CENTERALIGN | TPM_RIGHTALIGN |
+              TPM_VCENTERALIGN | TPM_BOTTOMALIGN);
+  *flags |= TPM_CENTERALIGN | TPM_VCENTERALIGN;
+
+  static int logged = 0;
+  if(logged < 24) {
+    dbg("FSX centered laptop menu: original=%d,%d physicalCenter=%d,%d work=%d,%d-%d,%d owner=0x%08X",
+        oldX, oldY, *x, *y,
+        area.left, area.top, area.right, area.bottom, hWnd);
+    logged++;
   }
+  return true;
 }
 
 
@@ -345,7 +365,7 @@ BOOL WINAPI NewTrackPopupMenu(HMENU hMenu, UINT uFlags, int x, int y,
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, int, HWND, const RECT *);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenu");
-  fsxPopupPointToPhysical(hWnd, &x, &y);
+  fsxPopupAtLaptopCenter(hWnd, &x, &y, &uFlags);
   return origFunc(hMenu, uFlags, x, y, nReserved, hWnd, prcRect);
 }
 
@@ -354,7 +374,7 @@ BOOL WINAPI NewTrackPopupMenuEx(HMENU hMenu, UINT uFlags, int x, int y,
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenuEx");
-  fsxPopupPointToPhysical(hWnd, &x, &y);
+  fsxPopupAtLaptopCenter(hWnd, &x, &y, &uFlags);
   return origFunc(hMenu, uFlags, x, y, hWnd, lptpm);
 }
 
