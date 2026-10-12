@@ -318,7 +318,14 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
 static bool fsxPopupAtLaptopCenter(HWND hWnd, int *x, int *y, UINT *flags)
 {
   if(!x || !y || !flags || !SoftTHActive || !FSXVirtualMonitorActive ||
-     fsxForegroundIsDialog() || !fsxWindowBelongsToThisProcess(hWnd))
+     fsxForegroundIsDialog())
+    return false;
+  // FSX sometimes supplies a NULL popup owner, or an internal UI
+  // control that fails the v3.50 strict owner test.  The hook executes
+  // inside the FSX process, so accept a NULL owner here.
+  DWORD ownerPid=GetCurrentProcessId();
+  if(hWnd) GetWindowThreadProcessId(hWnd,&ownerPid);
+  if(ownerPid!=GetCurrentProcessId())
     return false;
 
   HEAD *primary = config.getPrimaryHead();
@@ -365,6 +372,12 @@ BOOL WINAPI NewTrackPopupMenu(HMENU hMenu, UINT uFlags, int x, int y,
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, int, HWND, const RECT *);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenu");
+  static int calls=0;
+  if(calls<24) {
+    dbg("FSX TrackPopupMenu hooked: owner=0x%08X coords=%d,%d virtual=%d",
+        hWnd,x,y,FSXVirtualMonitorActive);
+    calls++;
+  }
   fsxPopupAtLaptopCenter(hWnd, &x, &y, &uFlags);
   return origFunc(hMenu, uFlags, x, y, nReserved, hWnd, prcRect);
 }
@@ -374,6 +387,12 @@ BOOL WINAPI NewTrackPopupMenuEx(HMENU hMenu, UINT uFlags, int x, int y,
 {
   typedef BOOL (WINAPI*OCALL)(HMENU, UINT, int, int, HWND, LPTPMPARAMS);
   const static OCALL origFunc = (OCALL) getHookCall("TrackPopupMenuEx");
+  static int calls=0;
+  if(calls<24) {
+    dbg("FSX TrackPopupMenuEx hooked: owner=0x%08X coords=%d,%d virtual=%d",
+        hWnd,x,y,FSXVirtualMonitorActive);
+    calls++;
+  }
   fsxPopupAtLaptopCenter(hWnd, &x, &y, &uFlags);
   return origFunc(hMenu, uFlags, x, y, hWnd, lptpm);
 }

@@ -43,12 +43,104 @@ __declspec(thread) static HHOOK threadHookMsg = NULL;  // Thread-local-storage h
 extern HWND SoftTHPresentWindow;
 extern volatile int FSXVirtualMonitorActive;
 
+
+// Native FSX context menus often bypass the imported TrackPopupMenu hooks,
+// or use a null/dialog owner. Observe the Windows-created popup itself.
+// This watcher only changes #32768 native popup windows belonging to FSX,
+// not any device, render, viewport, cockpit or SoftTH head window.
+static HWINEVENTHOOK fsxPopupWatch = NULL;
+static bool fsxPopupWatchAttempted = false;
+static bool fsxPopupMoving = false;
+
+static void CALLBACK fsxNativePopupEvent(
+    HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG object,
+    LONG child, DWORD eventThread, DWORD eventTime)
+{
+  if((event != EVENT_OBJECT_SHOW && event != EVENT_OBJECT_LOCATIONCHANGE) ||
+     object != OBJID_WINDOW || child != 0 || !hwnd || !SoftTHActive ||
+     !FSXVirtualMonitorActive || fsxPopupMoving)
+    return;
+
+  DWORD menuPid = 0;
+  GetWindowThreadProcessId(hwnd,&menuPid);
+  if(menuPid != GetCurrentProcessId())
+    return;
+  char cls[64] = {0};
+  GetClassNameA(hwnd,cls,sizeof(cls));
+  if(strcmp(cls,"#32768")!=0) {
+    // Limited diagnostics: identify custom FSX popups if no native
+    // context menu is ever created.
+    if(event==EVENT_OBJECT_SHOW) {
+      static int otherShows=0;
+      if(otherShows<18) {
+        RECT r={};
+        GetWindowRect(hwnd,&r);
+        dbg("FSX popup watcher: window-show class=<%s> rect=%ld,%ld-%ld,%ld",
+            cls,r.left,r.top,r.right,r.bottom);
+        ++otherShows;
+      }
+    }
+    return;
+  }
+
+  HEAD *primary = config.getPrimaryHead();
+  if(!primary || !primary->hwnd)
+    return;
+  HMONITOR monitor = MonitorFromWindow(primary->hwnd,MONITOR_DEFAULTTOPRIMARY);
+  MONITORINFO info = {};
+  info.cbSize=sizeof(info);
+  if(!monitor || !GetMonitorInfoA(monitor,&info))
+    return;
+  RECT work=info.rcWork;
+  if(work.right<=work.left || work.bottom<=work.top) work=info.rcMonitor;
+  RECT popup={};
+  if(!GetWindowRect(hwnd,&popup))
+    return;
+  const int mw=popup.right-popup.left, mh=popup.bottom-popup.top;
+  if(mw<=0 || mh<=0 || work.right<=work.left || work.bottom<=work.top)
+    return;
+  const int x=work.left+((work.right-work.left)-mw)/2;
+  const int y=work.top+((work.bottom-work.top)-mh)/2;
+  if(abs(x-popup.left)<=2 && abs(y-popup.top)<=2)
+    return;
+
+  static int moves=0;
+  if(moves<32) {
+    dbg("FSX native popup reposition: event=0x%X menu=0x%08X from=%ld,%ld-%ld,%ld to=%d,%d size=%dx%d",
+        event,hwnd,popup.left,popup.top,popup.right,popup.bottom,x,y,mw,mh);
+    ++moves;
+  }
+  fsxPopupMoving=true;
+  SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0,
+               SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOOWNERZORDER|
+               SWP_NOSENDCHANGING);
+  fsxPopupMoving=false;
+}
+
+static void fsxInstallPopupWatcher()
+{
+  if(fsxPopupWatchAttempted)return;
+  fsxPopupWatchAttempted=true;
+  // Called on the FSX message-pump thread; out-of-context delivery
+  // sends menu events to this same thread without DLL injection.
+  fsxPopupWatch=SetWinEventHook(
+      EVENT_OBJECT_SHOW,EVENT_OBJECT_LOCATIONCHANGE,NULL,
+      fsxNativePopupEvent,GetCurrentProcessId(),0,
+      WINEVENT_OUTOFCONTEXT);
+  if(fsxPopupWatch)
+    dbg("FSX native popup watcher installed on thread 0x%08X",GetCurrentThreadId());
+  else
+    dbg("FSX native popup watcher installation FAILED (error %lu)",GetLastError());
+}
+
+
 static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 {
   dbg("InputHandler: GetMsgProc");
 
   if(nCode < 0 || wParamIn == PM_NOREMOVE)
     return CallNextHookEx(NULL, nCode, wParamIn, lParamIn);
+  fsxInstallPopupWatcher();
   HWND win = ihGlobal.getHWND();
   if(!win) {
     //dbg("!win");
@@ -59,6 +151,21 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
   WPARAM wParam = msg->wParam;
   LPARAM lParam = msg->lParam;
   UINT wmsg = msg->message;
+
+  if(wmsg==WM_RBUTTONDOWN || wmsg==WM_RBUTTONUP ||
+     wmsg==WM_RBUTTONDBLCLK || wmsg==WM_CONTEXTMENU) {
+    static int rightLogs=0;
+    if(rightLogs<36) {
+      dbg("FSX right-click message: %s(0x%X) target=0x%08X class=<%s> lParam=%d,%d pt=%d,%d",
+          wmsg==WM_RBUTTONDOWN?"DOWN":
+          wmsg==WM_RBUTTONUP?"UP":
+          wmsg==WM_RBUTTONDBLCLK?"DOUBLE":"CONTEXT",
+          wmsg,msg->hwnd,"pending",
+          GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),
+          msg->pt.x,msg->pt.y);
+      rightLogs++;
+    }
+  }
 
   // Keyboard hooks
   switch(wmsg) {
@@ -292,6 +399,11 @@ void InputHandler::releaseHook()
 
   UnhookWindowsHookEx(threadHookMsg);
   hookedThreads.remove(tid);
+  if(fsxPopupWatch && hookedThreads.empty()) {
+    UnhookWinEvent(fsxPopupWatch);
+    fsxPopupWatch=NULL;
+    fsxPopupWatchAttempted=false;
+  }
 }
 
 static HEAD* findHead(HWND win)
