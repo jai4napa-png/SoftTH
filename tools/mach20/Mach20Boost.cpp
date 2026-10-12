@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <tlhelp32.h>
 #include <cwchar>
+#include <cwctype>
 #include <cstddef>
 #include <cmath>
 #include <cstdio>
@@ -81,6 +82,17 @@ static volatile LONG gWheelFallbackEvents = 0;
 static volatile LONG gWheelSimConnectEvents = 0;
 static volatile LONG gMouseScrollClicks = 0;
 
+// The informational overlay is a native Windows click-through window,
+// entirely separate from SoftTH/D3D9 and only visible in active boost.
+static HWND gOverlay = NULL;
+static HWND gOverlayLastFSX = NULL;
+static bool gOverlayVisible = false;
+static bool gActualMachValid = false;
+static double gActualMach = 0;
+static int gTargetMach = 0;
+static constexpr int OVERLAY_WIDTH = 300;
+static constexpr int OVERLAY_HEIGHT = 100;
+
 // The foreground process is cached from the process list. Do NOT call
 // OpenProcess/QueryFullProcessImageName for every wheel event: low-level
 // hooks have a strict timeout and can be silently removed by Windows.
@@ -102,6 +114,135 @@ static DWORD discoverFSXProcess() {
   CloseHandle(snap);
   return pid;
 }
+
+static LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT message,
+                                          WPARAM wp, LPARAM lp) {
+  switch(message) {
+    case WM_NCHITTEST:
+      return HTTRANSPARENT; // never capture mouse clicks or wheel
+    case WM_MOUSEACTIVATE:
+      return MA_NOACTIVATE;
+    case WM_ERASEBKGND:
+      return TRUE; // GDI paints the full background; no flicker
+    case WM_PAINT: {
+      PAINTSTRUCT ps={};
+      HDC dc=BeginPaint(hwnd,&ps);
+      if(!dc)break;
+      RECT bg={0,0,OVERLAY_WIDTH,OVERLAY_HEIGHT};
+      HBRUSH background=CreateSolidBrush(RGB(10,20,30));
+      FillRect(dc,&bg,background);
+      DeleteObject(background);
+      HPEN outline=CreatePen(PS_SOLID,2,RGB(71,201,164));
+      HPEN oldPen=(HPEN)SelectObject(dc,outline);
+      HBRUSH oldBrush=(HBRUSH)SelectObject(dc,GetStockObject(NULL_BRUSH));
+      Rectangle(dc,1,1,OVERLAY_WIDTH-1,OVERLAY_HEIGHT-1);
+      SelectObject(dc,oldBrush);
+      SelectObject(dc,oldPen);
+      DeleteObject(outline);
+
+      SetBkMode(dc,TRANSPARENT);
+      HFONT header=CreateFontW(-20,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,
+                              DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,
+                              CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,
+                              DEFAULT_PITCH | FF_SWISS,L"Segoe UI");
+      HFONT lineFont=CreateFontW(-18,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,
+                                DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,
+                                CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,
+                                DEFAULT_PITCH | FF_SWISS,L"Segoe UI");
+      HFONT old=(HFONT)SelectObject(dc,header);
+      SetTextColor(dc,RGB(85,243,197));
+      RECT line={14,7,OVERLAY_WIDTH-12,33};
+      DrawTextW(dc,L"MACH BOOST ON",-1,&line,DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
+      SelectObject(dc,lineFont);
+      wchar_t target[64]={};
+      swprintf_s(target,L"TARGET  MACH %d",gTargetMach);
+      SetTextColor(dc,RGB(244,250,252));
+      line=RECT{14,37,OVERLAY_WIDTH-12,62};
+      DrawTextW(dc,target,-1,&line,DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
+      wchar_t actual[80]={};
+      if(gActualMachValid)
+        swprintf_s(actual,L"ACTUAL  MACH %.2f",gActualMach);
+      else
+        wcscpy_s(actual,L"ACTUAL  waiting for FSX");
+      SetTextColor(dc,RGB(164,188,204));
+      line=RECT{14,66,OVERLAY_WIDTH-12,91};
+      DrawTextW(dc,actual,-1,&line,DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
+      SelectObject(dc,old);
+      DeleteObject(header);
+      DeleteObject(lineFont);
+      EndPaint(hwnd,&ps);
+      return 0;
+    }
+    default:
+      break;
+  }
+  return DefWindowProcW(hwnd,message,wp,lp);
+}
+
+static void initializeOverlay(HINSTANCE instance) {
+  WNDCLASSEXW cls={};
+  cls.cbSize=sizeof(cls);
+  cls.lpfnWndProc=OverlayWindowProc;
+  cls.hInstance=instance;
+  cls.lpszClassName=L"FSXMachBoost_Indicator_V23";
+  cls.hbrBackground=(HBRUSH)GetStockObject(BLACK_BRUSH);
+  if(!RegisterClassExW(&cls) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS) {
+    printf("WARNING: unable to register Mach overlay window (%lu)\n",
+           static_cast<unsigned long>(GetLastError()));
+    return;
+  }
+  gOverlay=CreateWindowExW(
+      WS_EX_TOPMOST|WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE|
+      WS_EX_TRANSPARENT|WS_EX_LAYERED,
+      cls.lpszClassName,L"FSX Mach Boost Indicator",WS_POPUP,
+      0,0,OVERLAY_WIDTH,OVERLAY_HEIGHT,NULL,NULL,instance,NULL);
+  if(!gOverlay) {
+    printf("WARNING: unable to create overlay (%lu)\n",
+           static_cast<unsigned long>(GetLastError()));
+    return;
+  }
+  // Full opacity; 100% alpha. Transparency here refers to input pass-through.
+  SetLayeredWindowAttributes(gOverlay,0,255,LWA_ALPHA);
+  ShowWindow(gOverlay,SW_HIDE);
+}
+
+static void updateOverlay(bool requested, int machTarget,
+                          bool actualValid, double actualMach) {
+  if(!gOverlay)return;
+  // Display ONLY while mode is enabled AND FSX itself has focus. This
+  // avoids leaving an always-on-top indicator over the user's desktop.
+  const bool show=requested && focusedFSX();
+  if(!show) {
+    if(gOverlayVisible) {
+      ShowWindow(gOverlay,SW_HIDE);
+      gOverlayVisible=false;
+    }
+    return;
+  }
+  gTargetMach=machTarget;
+  gActualMachValid=actualValid && std::isfinite(actualMach);
+  gActualMach=actualMach;
+  HWND fg=GetForegroundWindow();
+  HMONITOR mon=MonitorFromWindow(fg,MONITOR_DEFAULTTOPRIMARY);
+  MONITORINFO info={};
+  info.cbSize=sizeof(info);
+  RECT area={0,0,1920,1080};
+  if(mon && GetMonitorInfoW(mon,&info)) {
+    area=info.rcWork;
+    if(area.right<=area.left || area.bottom<=area.top) area=info.rcMonitor;
+  }
+  const int x=area.right-OVERLAY_WIDTH-16;
+  const int y=area.top+18;
+  const bool moved=fg!=gOverlayLastFSX;
+  if(!gOverlayVisible || moved) {
+    SetWindowPos(gOverlay,HWND_TOPMOST,x,y,OVERLAY_WIDTH,OVERLAY_HEIGHT,
+                 SWP_NOACTIVATE|SWP_SHOWWINDOW);
+    gOverlayVisible=true;
+    gOverlayLastFSX=fg;
+  }
+  InvalidateRect(gOverlay,NULL,FALSE);
+}
+
 static bool focusedFSX() {
   const DWORD fsxPid=gFSXPid;
   if(!fsxPid)return false;
@@ -380,9 +521,10 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH 101 POWER-THROTTLE 2.2 — 101 ONE-MACH STEPS");
+  puts("FSX MACH 101 POWER-THROTTLE 2.3 — ON-ONLY SCREEN INDICATOR");
   puts("Separate program; no SoftTH changes or aircraft file edits.");
   puts("Mach 101 boost OFF by default; airplane throttle remains normal.");
+  puts("On-screen indicator appears ONLY with boost ON and FSX foreground.");
   puts("Ctrl+Alt+F4 = Mach 101 throttle boost ON / OFF");
   puts("F1 = 0 percent throttle; F4 = 100 percent throttle");
   puts("F2/F3 = normal steps OFF; +1/-1 Mach per press ON");
@@ -413,6 +555,7 @@ int main() {
              h.id==20?"F4":h.id==21?"W":h.id==22?"Q":"D",
              static_cast<unsigned long>(GetLastError()));
   }
+  initializeOverlay(GetModuleHandleW(NULL));
   gMouseHook=SetWindowsHookExW(WH_MOUSE_LL,MouseHook,GetModuleHandleW(NULL),0);
   gKeyHook=SetWindowsHookExW(WH_KEYBOARD_LL,KeyHook,GetModuleHandleW(NULL),0);
   if(!gMouseHook)
@@ -442,7 +585,11 @@ int main() {
   while(!quit) {
     MSG msg={};
     while(PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) {
-      if(msg.message!=WM_HOTKEY)continue;
+      if(msg.message!=WM_HOTKEY) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+        continue;
+      }
       if(msg.wParam==20) {
         LONG next=gBoost?0:1;
         InterlockedExchange(&gBoost,next);
@@ -644,6 +791,15 @@ int main() {
       }
       lastSend=now;
     }
+    // Small status overlay, redrawn four times/sec. It neither steals
+    // window focus nor changes the SoftTH virtual render coordinates.
+    static DWORD overlayRefresh=0;
+    if(now-overlayRefresh>=250) {
+      updateOverlay(gBoost!=0,boostStep,
+                    connectedFlight && now-lastTelemetry<3500,
+                    telemetry.mach);
+      overlayRefresh=now;
+    }
     if(now-lastReport>=3000 && sc.connection && connectedFlight) {
       printf("%s | throttle %.2f%% | target Mach %d | indicated Mach %.2f | altitude %.0fft\n",
              gBoost?"BOOST ON":"Normal",
@@ -653,6 +809,11 @@ int main() {
       lastReport=now;
     }
     Sleep(12);
+  }
+  if(gOverlay) {
+    ShowWindow(gOverlay,SW_HIDE);
+    DestroyWindow(gOverlay);
+    gOverlay=NULL;
   }
   if(gKeyHook)UnhookWindowsHookEx(gKeyHook);
   if(gMouseHook)UnhookWindowsHookEx(gMouseHook);

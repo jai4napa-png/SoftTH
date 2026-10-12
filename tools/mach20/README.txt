@@ -1,4 +1,4 @@
-FSX MACH 101 POWER-THROTTLE 2.2 — 101 ONE-MACH STEPS (EXPERIMENTAL)
+FSX MACH 101 POWER-THROTTLE 2.3 — BOOST INDICATOR WHEN ON (EXPERIMENTAL)
 ============================================
 A stand-alone Windows application, independent from SoftTH.
 No modification to FSX, SoftTH, aircraft.cfg or scenery files.
@@ -10,7 +10,7 @@ CONTROLS
   F2/F3        — Normal FSX throttle increments with boost OFF
                  Boost ON: +1 Mach for F3, -1 Mach for F2 (101 steps)
   Mouse wheel  — Normal FSX throttle increment events when boost OFF
-                 Boost ON: 2% per wheel detent, 50 steps 0%-100%
+                 Boost ON: +1/-1 Mach per wheel detent (101 steps)
   Ctrl+Alt+W   — Toggle program wheel throttle control on/off
   Ctrl+Alt+D   — Print wheel-capture diagnostic counters
   Ctrl+Alt+Q   — Exit the controller; leaves flight in FSX
@@ -87,3 +87,13 @@ issue; the status output distinguishes that case.
 V2.2 CHANGE: Boost scale is Mach 0-101, 101 increments of Mach 1;
 Ctrl+Alt+F4 toggles. Old v2.1 wheel capture fallback and diagnostics
 remain. With toggle OFF, F1-F4 and wheel use regular aircraft limits.
+
+ON-SCREEN INDICATOR (V2.3)
+In boosted mode, a small click-through status HUD appears in the top-right
+of the laptop's physical display. It shows BOOST ON, TARGET MACH, and
+ACTUAL MACH from live FSX telemetry. It is hidden whenever the boost
+is switched OFF, when another application is foreground, or when FSX is
+not yet active. It does not change SoftTH or any display coordinates.
+Physical windowed fullscreen (SoftTH focus-safety workaround) is expected
+to allow a topmost Windows window above FSX. True exclusive fullscreen
+is not guaranteed to show external GDI windows.
