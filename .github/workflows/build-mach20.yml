@@ -1,7 +1,7 @@
 name: Build FSX External Mach20 Boost x86
 on:
   push:
-    branches: [ "fsx-mach20-external-tool" ]
+    branches: [ "fsx-mach20-external-tool", "fsx-mach20-simconnect-fix" ]
   workflow_dispatch:
 
 permissions:
@@ -18,13 +18,16 @@ jobs:
           for /f "delims=" %%v in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath') do set "VS=%%v"
           call "%VS%\VC\Auxiliary\Build\vcvars32.bat"
           if not exist dist mkdir dist
-          cl /nologo /W4 /EHsc /O2 /std:c++17 /DWIN32 /Fe:dist\FSX_Mach20Boost.exe tools\mach20\Mach20Boost.cpp user32.lib kernel32.lib
+          cl /nologo /W4 /EHsc /O2 /MT /std:c++17 /DWIN32 /Fe:dist\FSX_Mach20Boost.exe tools\mach20\Mach20Boost.cpp user32.lib kernel32.lib shell32.lib
       - name: Include guide
         shell: pwsh
-        run: Copy-Item tools/mach20/README.txt dist/README.txt
+        run: |
+          Copy-Item tools/mach20/README.txt dist/README.txt
+          Copy-Item tools/mach20/Repair_SimConnect.cmd dist/Repair_SimConnect.cmd
+          Copy-Item tools/mach20/SimConnect_*.manifest dist/
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: FSX_Mach20Boost_x86_test
+          name: FSX_Mach20Boost_v1_2_SimConnect_Fix
           path: dist/*
           if-no-files-found: error

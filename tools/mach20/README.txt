@@ -1,4 +1,4 @@
-FSX MACH BOOST — EXPERIMENTAL TEST
+FSX MACH BOOST 1.2 — SIMCONNECT REPAIR BUILD
 ===================================
 Run FSX Steam Edition, load a flight, then double-click FSX_Mach20Boost.exe.
 This is a separate external controller; never put it in the FSX game folder.
@@ -30,3 +30,14 @@ Requirements:
 
 Source: tools/mach20/Mach20Boost.cpp
 Build: .github/workflows/build-mach20.yml, GitHub Actions Windows x86
+
+SIMCONNECT ERROR FIX:
+This version probes native WinSxS side-by-side assemblies using manifest
+activation for FSX Steam versions 10.0.62615 and 10.0.62613, plus FSX-SP2
+10.0.61259 and FSX-SP1 10.0.61242. Extract EVERYTHING from the ZIP to
+one folder: the .exe must be next to its four SimConnect_*.manifest files.
+If it still says 32-bit SimConnect client not accessible, run the included
+Repair_SimConnect.cmd. It locates the MSI in your original FSX SDK install,
+asks before installing, and can be given a different FSX root location.
+No third-party DLL downloads. No SoftTH updates. Wheel throttle remains
+available through your independent AutoHotkey script (not bundled here).

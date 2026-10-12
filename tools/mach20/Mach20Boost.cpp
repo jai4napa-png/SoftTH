@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shlobj.h>
 #include <cstddef>
 #include <cmath>
 #include <cstdio>
@@ -55,49 +56,147 @@ bool fetch(P& slot, const char* name) {
   if(!slot) fprintf(stderr, "SimConnect export not found: %s\n", name);
   return slot != nullptr;
 }
-static bool loadSimConnect() {
-  WCHAR win[MAX_PATH]={0};
-  if(!GetWindowsDirectoryW(win, MAX_PATH)) return false;
-  std::wstring base = std::wstring(win) + L"\\WinSxS\\";
-  std::wstring pattern = base + L"x86_microsoft.flightsimulator.simconnect_*";
-  WIN32_FIND_DATAW ent={0};
-  HANDLE search = FindFirstFileW(pattern.c_str(), &ent);
-  std::vector<std::wstring> candidates;
-  if(search != INVALID_HANDLE_VALUE) {
-    do {
-      if(!(ent.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-      std::wstring folder = ent.cFileName;
-      candidates.push_back(base + folder + L"\\SimConnect.dll");
-    } while(FindNextFileW(search, &ent));
-    FindClose(search);
-  }
-  // FSX-SE 10.0.62615 preferred, then FSX Acceleration (10.0.61259).
-  std::sort(candidates.begin(), candidates.end(), [](const std::wstring& a, const std::wstring& b){
-    const std::wstring preferred = L"10.0.62615.0";
-    const bool ap = a.find(preferred) != std::wstring::npos;
-    const bool bp = b.find(preferred) != std::wstring::npos;
-    if(ap != bp) return ap;
-    return a > b;
-  });
-  for(const auto& path : candidates) {
-    DWORD attrs = GetFileAttributesW(path.c_str());
-    if(attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) continue;
-    sc.dll = LoadLibraryExW(path.c_str(), NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
-    if(sc.dll) {
-      wprintf(L"Loaded installed FSX SimConnect: %ls\n", path.c_str());
-      break;
-    }
-  }
-  if(!sc.dll) {
-    sc.dll = LoadLibraryW(L"SimConnect.dll");
-    if(sc.dll) puts("Loaded SimConnect.dll from Windows DLL resolution.");
-  }
-  if(!sc.dll) {
-    puts("SimConnect.dll not found. Install the FSX-SE SimConnect client from");
-    puts("FSX\\SDK\\Core Utilities Kit\\SimConnect SDK\\lib\\SimConnect.msi");
-    puts("and restart this program. Nothing in FSX has been modified.");
+// FSX-SE's client is a side-by-side WinSxS assembly. On many Win11
+// installations LoadLibrary("SimConnect.dll") alone is NOT sufficient.
+// Probe installed versions by activating a real SxS manifest first.
+static bool getProgramDirectory(std::wstring& dir) {
+  wchar_t exe[MAX_PATH]={};
+  DWORD n=GetModuleFileNameW(NULL,exe,MAX_PATH);
+  if(!n || n >= MAX_PATH) return false;
+  std::wstring s(exe);
+  const size_t pos=s.find_last_of(L"\\/");
+  if(pos==std::wstring::npos)return false;
+  dir=s.substr(0,pos);
+  return true;
+}
+static bool isExistingFile(const std::wstring& path) {
+  DWORD attrs=GetFileAttributesW(path.c_str());
+  return attrs!=INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+static bool usableSimConnect(HMODULE dll) {
+  const char* names[]={
+    "SimConnect_Open","SimConnect_Close",
+    "SimConnect_AddToDataDefinition",
+    "SimConnect_RequestDataOnSimObject",
+    "SimConnect_SetDataOnSimObject",
+    "SimConnect_GetNextDispatch"
+  };
+  for(const char* name : names)
+    if(!GetProcAddress(dll,name)) return false;
+  return true;
+}
+static bool tryDll(HMODULE dll, const char* description) {
+  if(!dll) return false;
+  if(!usableSimConnect(dll)) {
+    printf("SimConnect client at %s lacks required API symbols; skipping.\n",description);
+    FreeLibrary(dll);
     return false;
   }
+  sc.dll=dll;
+  printf("Loaded FSX SimConnect: %s\n",description);
+  return true;
+}
+static bool loadWithManifest(const std::wstring& path,const char* version) {
+  if(!isExistingFile(path))return false;
+  ACTCTXW act={};
+  act.cbSize=sizeof(act);
+  act.lpSource=path.c_str();
+  HANDLE handle=CreateActCtxW(&act);
+  if(handle==INVALID_HANDLE_VALUE) {
+    printf("SimConnect %s activation unavailable (Windows error %lu).\n",
+           version,static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
+  ULONG_PTR cookie=0;
+  bool okay=false;
+  if(ActivateActCtx(handle,&cookie)) {
+    HMODULE dll=LoadLibraryW(L"SimConnect.dll");
+    const DWORD err=dll ? ERROR_SUCCESS : GetLastError();
+    okay=tryDll(dll,version);
+    if(!okay && err!=ERROR_SUCCESS)
+      printf("SimConnect %s load failed (Windows error %lu).\n",
+             version,static_cast<unsigned long>(err));
+    DeactivateActCtx(0,cookie);
+  }
+  ReleaseActCtx(handle);
+  return okay;
+}
+static std::wstring installerPath() {
+  // The user currently has FSX in the conventional Steam directory.
+  // Checking this path is a diagnostic only; we NEVER launch MSI silently.
+  wchar_t pf[MAX_PATH]={};
+  std::wstring base;
+  if(SUCCEEDED(SHGetFolderPathW(NULL,CSIDL_PROGRAM_FILESX86,NULL,SHGFP_TYPE_CURRENT,pf)))
+    base=pf;
+  if(base.empty())base=L"C:\\Program Files (x86)";
+  return base+L"\\Steam\\steamapps\\common\\FSX\\SDK\\Core Utilities Kit\\SimConnect SDK\\lib\\SimConnect.msi";
+}
+static bool loadSimConnect() {
+  std::wstring dir;
+  getProgramDirectory(dir);
+
+  // First prefer a SimConnect.dll explicitly installed beside this EXE,
+  // then versions registered in WinSxS via an activation manifest.
+  if(tryDll(LoadLibraryW(L"SimConnect.dll"),"normal Windows DLL lookup"))
+    goto loaded;
+
+  if(!dir.empty()) {
+    struct Candidate { const wchar_t* manifest;const char* label; };
+    const Candidate versions[] = {
+      {L"SimConnect_62615.manifest","FSX-Steam 10.0.62615.0"},
+      {L"SimConnect_62613.manifest","FSX-Steam 10.0.62613.0"},
+      {L"SimConnect_61259.manifest","FSX-SP2 10.0.61259.0"},
+      {L"SimConnect_61242.manifest","FSX-SP1 10.0.61242.0"}
+    };
+    for(const Candidate& ver:versions) {
+      if(loadWithManifest(dir+L"\\"+ver.manifest,ver.label))
+        goto loaded;
+    }
+  }
+  // Last-chance fallback for valid WinSxS installs without proper SxS
+  // assembly binding. Keep each load attempt in diagnostic output.
+  {
+    wchar_t win[MAX_PATH]={};
+    if(GetWindowsDirectoryW(win,MAX_PATH)) {
+      std::wstring root=std::wstring(win)+L"\\WinSxS\\";
+      WIN32_FIND_DATAW data={};
+      HANDLE search=FindFirstFileW((root+L"x86_microsoft.flightsimulator.simconnect_*").c_str(),&data);
+      if(search!=INVALID_HANDLE_VALUE) {
+        do {
+          if(!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))continue;
+          const std::wstring dllPath=root+data.cFileName+L"\\SimConnect.dll";
+          if(!isExistingFile(dllPath))continue;
+          HMODULE dll=LoadLibraryExW(dllPath.c_str(),NULL,LOAD_WITH_ALTERED_SEARCH_PATH);
+          if(dll && usableSimConnect(dll)) {
+            sc.dll=dll;
+            wprintf(L"Loaded FSX SimConnect via physical WinSxS path: %ls\n",dllPath.c_str());
+            break;
+          }
+          const DWORD err=dll ? ERROR_SUCCESS : GetLastError();
+          if(dll)FreeLibrary(dll);
+          wprintf(L"Unable to load %ls (Windows error %lu).\n",
+                  dllPath.c_str(),static_cast<unsigned long>(err));
+        } while(FindNextFileW(search,&data));
+        FindClose(search);
+      }
+    }
+    if(sc.dll)goto loaded;
+  }
+  puts("");
+  puts("ERROR: 32-bit FSX SimConnect client not accessible.");
+  puts("This can mean the client is missing OR the WinSxS assembly is not registered.");
+  puts("In this same folder, run Repair_SimConnect.cmd to locate FSX's own MSI.");
+  puts("It asks before running Windows Installer and never downloads DLLs.");
+  {
+    const std::wstring path=installerPath();
+    if(isExistingFile(path))
+      wprintf(L"Found bundled MSI: %ls\n",path.c_str());
+    else
+      puts("If the FSX SDK/SimConnect MSI is missing, verify FSX files in Steam.");
+  }
+  return false;
+
+loaded:
   return fetch(sc.Open,"SimConnect_Open") &&
          fetch(sc.Close,"SimConnect_Close") &&
          fetch(sc.Add,"SimConnect_AddToDataDefinition") &&
@@ -105,6 +204,7 @@ static bool loadSimConnect() {
          fetch(sc.Set,"SimConnect_SetDataOnSimObject") &&
          fetch(sc.Next,"SimConnect_GetNextDispatch");
 }
+
 static void disconnect() {
   if(sc.connection) {
     sc.Close(sc.connection);
@@ -147,7 +247,7 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH BOOST 1.0 — EXPERIMENTAL");
+  puts("FSX MACH BOOST 1.2 — SIMCONNECT REPAIR / EXPERIMENTAL");
   puts("Works separately from SoftTH. No aircraft files are edited.");
   puts("Start FSX-SE and load a flight before enabling the boost.");
   puts("CAUTION: Mach 20 can overwhelm FSX physics/scenery and cause a crash.");
