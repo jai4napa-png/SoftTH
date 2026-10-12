@@ -19,6 +19,11 @@ static constexpr DWORD PERIOD_SECOND = 4;
 static constexpr DWORD DEF_READ = 100;
 static constexpr DWORD DEF_WRITE = 101;
 static constexpr DWORD REQ_READ = 100;
+static constexpr DWORD EVT_THROTTLE_SET = 200;
+static constexpr DWORD EVT_THROTTLE_INCR = 201;
+static constexpr DWORD EVT_THROTTLE_DECR = 202;
+static constexpr DWORD EVTFLAG_PRIORITY = 0x10;
+static constexpr DWORD PRIORITY_HIGHEST = 1;
 static constexpr DWORD RECV_SIMOBJECT_DATA = 8;
 static constexpr DWORD RECV_EXCEPTION = 1;
 static constexpr DWORD RECV_QUIT = 3;
@@ -37,6 +42,7 @@ struct Telemetry {
   double mach = 0.0;
   double altitudeFt = 0.0;
   double bodyZfps = 0.0;
+  double throttlePct = 0.0;
 };
 struct ScApi {
   HMODULE dll = nullptr;
@@ -47,8 +53,88 @@ struct ScApi {
   HRESULT (WINAPI *Request)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD,DWORD) = nullptr;
   HRESULT (WINAPI *Set)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD,const void*) = nullptr;
   HRESULT (WINAPI *Next)(HANDLE,ScRecv**,DWORD*) = nullptr;
+  HRESULT (WINAPI *MapEvent)(HANDLE,DWORD,const char*) = nullptr;
+  HRESULT (WINAPI *Transmit)(HANDLE,DWORD,DWORD,DWORD,DWORD,DWORD) = nullptr;
 };
 static ScApi sc;
+
+// Mach-boost mode is entirely external to SoftTH; it reuses FSX's
+// native F1/F4 throttle commands. Only F2/F3 and the wheel receive
+// 2%-per-step treatment when boosted.
+static volatile LONG gBoost = 0;
+static volatile LONG gWheelActive = 1;
+static volatile LONG gWheelSteps = 0;
+static volatile LONG gFineKeySteps = 0;
+static volatile LONG gEndStop = -1; // 0=F1, 1=F4, -1=none
+static HHOOK gMouseHook = nullptr;
+static HHOOK gKeyHook = nullptr;
+static int gWheelRemainder = 0;
+static bool gEventMappingReady = false;
+
+static bool fsxWindow(HWND window) {
+  if(!window) return false;
+  DWORD pid=0;
+  GetWindowThreadProcessId(window,&pid);
+  if(!pid) return false;
+  HANDLE proc=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
+  if(!proc) return false;
+  wchar_t path[MAX_PATH]={};
+  DWORD len=MAX_PATH;
+  bool ok=QueryFullProcessImageNameW(proc,0,path,&len)!=0;
+  CloseHandle(proc);
+  if(!ok) return false;
+  const wchar_t* name=wcsrchr(path,L'\\');
+  name=name?name+1:path;
+  return _wcsicmp(name,L"fsx.exe")==0 || _wcsicmp(name,L"fsx_softth.exe")==0;
+}
+static bool focusedFSX() {
+  HWND window=GetForegroundWindow();
+  if(!fsxWindow(window))return false;
+  char cls[64]={};
+  GetClassNameA(window,cls,sizeof(cls));
+  return strcmp(cls,"#32770")!=0 && strcmp(cls,"#32768")!=0;
+}
+static LRESULT CALLBACK MouseHook(int n,WPARAM msg,LPARAM data) {
+  if(n==HC_ACTION && msg==WM_MOUSEWHEEL && gWheelActive &&
+     sc.connection && gEventMappingReady && focusedFSX()) {
+    const auto* info=reinterpret_cast<const MSLLHOOKSTRUCT*>(data);
+    HWND over=WindowFromPoint(info->pt);
+    if(fsxWindow(over)) {
+      const int delta=static_cast<short>(HIWORD(info->mouseData));
+      gWheelRemainder+=delta;
+      const LONG detents=gWheelRemainder/120;
+      gWheelRemainder-=detents*120;
+      if(detents)InterlockedExchangeAdd(&gWheelSteps,detents);
+      return 1; // suppress FSX's usual zoom for wheel-throttle
+    }
+  }
+  return CallNextHookEx(gMouseHook,n,msg,data);
+}
+static LRESULT CALLBACK KeyHook(int n,WPARAM msg,LPARAM data) {
+  if(n==HC_ACTION && (msg==WM_KEYDOWN || msg==WM_SYSKEYDOWN) &&
+     sc.connection && focusedFSX() &&
+     !(GetAsyncKeyState(VK_CONTROL)&0x8000) &&
+     !(GetAsyncKeyState(VK_MENU)&0x8000)) {
+    const auto* info=reinterpret_cast<const KBDLLHOOKSTRUCT*>(data);
+    if(info->vkCode==VK_F1) {
+      InterlockedExchange(&gEndStop,0);
+    } else if(info->vkCode==VK_F4) {
+      InterlockedExchange(&gEndStop,1);
+    } else if(gBoost && (info->vkCode==VK_F2 || info->vkCode==VK_F3)) {
+      // Intercept F2/F3 only when boost is on; give them the same 2%
+      // finesse as the mouse wheel. With boost off FSX receives F2/F3.
+      InterlockedExchangeAdd(&gFineKeySteps,info->vkCode==VK_F3?1:-1);
+      return 1;
+    }
+  }
+  return CallNextHookEx(gKeyHook,n,msg,data);
+}
+static bool emitThrottle(DWORD eventId,DWORD value=0) {
+  if(!sc.connection || !gEventMappingReady)return false;
+  return SUCCEEDED(sc.Transmit(sc.connection,OBJ_USER,eventId,value,
+                               PRIORITY_HIGHEST,EVTFLAG_PRIORITY));
+}
+
 
 template<typename P>
 bool fetch(P& slot, const char* name) {
@@ -202,10 +288,15 @@ loaded:
          fetch(sc.Add,"SimConnect_AddToDataDefinition") &&
          fetch(sc.Request,"SimConnect_RequestDataOnSimObject") &&
          fetch(sc.Set,"SimConnect_SetDataOnSimObject") &&
-         fetch(sc.Next,"SimConnect_GetNextDispatch");
+         fetch(sc.Next,"SimConnect_GetNextDispatch") &&
+         fetch(sc.MapEvent,"SimConnect_MapClientEventToSimEvent") &&
+         fetch(sc.Transmit,"SimConnect_TransmitClientEvent");
 }
 
 static void disconnect() {
+  gEventMappingReady=false;
+  InterlockedExchange(&gWheelSteps,0);
+  InterlockedExchange(&gFineKeySteps,0);
   if(sc.connection) {
     sc.Close(sc.connection);
     sc.connection = nullptr;
@@ -220,7 +311,8 @@ static bool connect() {
     {"AMBIENT TEMPERATURE","celsius"},
     {"AIRSPEED MACH","mach"},
     {"PLANE ALTITUDE","feet"},
-    {"VELOCITY BODY Z","feet per second"}
+    {"VELOCITY BODY Z","feet per second"},
+    {"GENERAL ENG THROTTLE LEVER POSITION:1","percent"}
   };
   for(const auto& v: vars)
     if(FAILED(sc.Add(sc.connection,DEF_READ,v.name,v.unit,DATA_FLOAT64,0.0f,0xFFFFFFFF))) {
@@ -230,6 +322,11 @@ static bool connect() {
                    DATA_FLOAT64,0.0f,0xFFFFFFFF))) {
     puts("Unable to define aircraft speed control."); disconnect(); return false;
   }
+  gEventMappingReady =
+      SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_SET,"THROTTLE_SET")) &&
+      SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_INCR,"THROTTLE_INCR")) &&
+      SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_DECR,"THROTTLE_DECR"));
+  if(!gEventMappingReady) puts("WARNING: throttle event mapping unavailable.");
   if(FAILED(sc.Request(sc.connection,REQ_READ,DEF_READ,OBJ_USER,PERIOD_SECOND,0,0,0,0))) {
     puts("Unable to request live flight telemetry."); disconnect(); return false;
   }
@@ -247,119 +344,209 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH BOOST 1.2 — SIMCONNECT REPAIR / EXPERIMENTAL");
-  puts("Works separately from SoftTH. No aircraft files are edited.");
-  puts("Start FSX-SE and load a flight before enabling the boost.");
-  puts("CAUTION: Mach 20 can overwhelm FSX physics/scenery and cause a crash.");
+  puts("FSX MACH 20 POWER-THROTTLE 2.0 — EXPERIMENTAL");
+  puts("Separate program; no SoftTH changes or aircraft file edits.");
+  puts("Mach boost OFF by default; airplane throttle remains normal.");
+  puts("Ctrl+Alt+F4 = Mach 20 engine-power mode ON / OFF");
+  puts("F1 = 0 percent throttle; F4 = 100 percent throttle");
+  puts("F2/F3 = normal steps OFF; 2 percent steps ON");
+  puts("Mouse wheel = native throttle steps OFF; 2 percent steps ON");
+  puts("Ctrl+Alt+W = wheel mapping ON / OFF");
+  puts("Ctrl+Alt+Q = quit");
   puts("");
-  puts("Ctrl+Alt+1 = Mach 1 target");
-  puts("Ctrl+Alt+2 = Mach 2 target");
-  puts("Ctrl+Alt+5 = Mach 5 target");
-  puts("Ctrl+Alt+0 = Mach 20 target");
-  puts("Ctrl+Alt+M = toggle boost ON / OFF");
-  puts("Ctrl+Alt+Q = exit and restore original pre-boost speed");
+  puts("NOTE: Only a simulation speed override, NOT accurate Mach 20 physics.");
+  puts("IMPORTANT: EXIT your previous Mach Boost program and wheel AutoHotkey");
+  puts("script so there are no competing throttle controllers.");
   puts("");
-  if(!loadSimConnect()) { puts("Press Enter to close."); getchar(); return 2; }
-  const UINT hotkeyMods = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT;
-  const struct { int id, key; } hotkeys[] = {
-    {1,'1'}, {2,'2'}, {5,'5'}, {20,'0'}, {99,'M'}, {100,'Q'}
-  };
-  for(const auto& hk : hotkeys)
-    if(!RegisterHotKey(NULL,hk.id,hotkeyMods,hk.key))
-      printf("WARNING: hotkey Ctrl+Alt+%c unavailable (already in use)\n",hk.key);
-  double targetMach = 2.0; // Test gently; select 20 explicitly.
-  Telemetry telemetry;
-  bool haveTelemetry=false,boost=false,exitProgram=false,havePreBoost=false;
-  double preBoostSpeed=0;
-  DWORD lastTelemetry=0, lastConnectAttempt=0, lastWrite=0, lastPrint=0;
-  puts("Default target Mach 2. Press Ctrl+Alt+0 for Mach 20.");
+  if(!loadSimConnect()) { puts("Press Enter to close."); getchar();return 2; }
 
-  while(!exitProgram) {
-    MSG msg;
+  const UINT mods=MOD_CONTROL|MOD_ALT|MOD_NOREPEAT;
+  const struct {int id;UINT key;} bindings[]={
+    {20,VK_F4},{21,'W'},{22,'Q'}
+  };
+  for(const auto& h: bindings) {
+    if(!RegisterHotKey(NULL,h.id,mods,h.key))
+      printf("WARNING: Ctrl+Alt+%s shortcut unavailable (Windows %lu).\n",
+             h.id==20?"F4":h.id==21?"W":"Q",
+             static_cast<unsigned long>(GetLastError()));
+  }
+  gMouseHook=SetWindowsHookExW(WH_MOUSE_LL,MouseHook,GetModuleHandleW(NULL),0);
+  gKeyHook=SetWindowsHookExW(WH_KEYBOARD_LL,KeyHook,GetModuleHandleW(NULL),0);
+  if(!gMouseHook) puts("WARNING: wheel hook unavailable.");
+  if(!gKeyHook) puts("WARNING: fine F2/F3 keyboard hook unavailable.");
+  puts("Waiting for FSX SimConnect connection. Start/load your flight.");
+
+  Telemetry telemetry;
+  bool connectedFlight=false;
+  DWORD lastTelemetry=0,lastConnectTry=GetTickCount()-3000,lastSend=0,lastReport=0;
+  double commandedThrottle=0.0;
+  bool throttleLocal=false;
+  DWORD localCommandTime=0;
+  double currentOverrideFps=0.0;
+  bool initializedBoostSpeed=false;
+  bool quit=false;
+
+  while(!quit) {
+    MSG msg={};
     while(PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) {
-      if(msg.message!=WM_HOTKEY) continue;
-      switch((int)msg.wParam) {
-        case 1: targetMach=1;break;
-        case 2: targetMach=2;break;
-        case 5: targetMach=5;break;
-        case 20: targetMach=20;break;
-        case 99:
-          if(boost) {
-            boost=false;
-            if(havePreBoost && sc.connection) writeSpeed(preBoostSpeed);
-            puts("Boost OFF. Restored initial forward speed.");
-          } else if(sc.connection && haveTelemetry && GetTickCount()-lastTelemetry<4000) {
-            preBoostSpeed=telemetry.bodyZfps;
-            havePreBoost=true;
-            boost=true;
-            puts("BOOST ON (speed override active)");
+      if(msg.message!=WM_HOTKEY)continue;
+      if(msg.wParam==20) {
+        LONG next=gBoost?0:1;
+        InterlockedExchange(&gBoost,next);
+        InterlockedExchange(&gWheelSteps,0);
+        InterlockedExchange(&gFineKeySteps,0);
+        initializedBoostSpeed=false;
+        throttleLocal=false;
+        if(next) {
+          if(!connectedFlight || GetTickCount()-lastTelemetry>3500 ||
+             !gEventMappingReady) {
+            InterlockedExchange(&gBoost,0);
+            puts("Cannot enable: no recent FSX throttle telemetry / SimConnect.");
           } else {
-            puts("No fresh FSX flight telemetry; cannot engage boost.");
+            puts("MACH 20 POWER ON: F4=full boost; F1=idle; 50 fine steps.");
           }
-          break;
-        case 100:
-          if(boost && havePreBoost && sc.connection) writeSpeed(preBoostSpeed);
-          boost=false; exitProgram=true;
-          break;
+        } else {
+          puts("MACH 20 POWER OFF: FSX native engine limits restored.");
+          puts("NOTE: Existing high airspeed decays under FSX physics; not instantaneous.");
+        }
+      } else if(msg.wParam==21) {
+        InterlockedExchange(&gWheelActive,gWheelActive?0:1);
+        InterlockedExchange(&gWheelSteps,0);
+        gWheelRemainder=0;
+        printf("Mouse-wheel throttle %s\n",gWheelActive?"ON":"OFF");
+      } else if(msg.wParam==22) {
+        InterlockedExchange(&gBoost,0);
+        quit=true;
       }
-      if((int)msg.wParam==1 || (int)msg.wParam==2 || (int)msg.wParam==5 ||
-         (int)msg.wParam==20)
-        printf("New target Mach %.0f; boost %s\n",targetMach,boost?"ON":"OFF");
     }
     DWORD now=GetTickCount();
-    if(!sc.connection && now-lastConnectAttempt >= 3000) {
-      lastConnectAttempt=now;
-      if(connect()) {haveTelemetry=false; boost=false;}
+    if(!sc.connection && now-lastConnectTry>=3000) {
+      lastConnectTry=now;
+      if(connect()) {
+        connectedFlight=false;
+        throttleLocal=false;
+        initializedBoostSpeed=false;
+        InterlockedExchange(&gBoost,0);
+      }
     }
     if(sc.connection) {
-      for(int i=0;i<100;++i) {
+      for(int i=0;i<100;i++) {
         ScRecv* packet=nullptr;
-        DWORD cb=0;
-        HRESULT hr=sc.Next(sc.connection,&packet,&cb);
+        DWORD bytes=0;
+        HRESULT hr=sc.Next(sc.connection,&packet,&bytes);
         if(hr!=S_OK || !packet)break;
         if(packet->id==RECV_QUIT) {
-          puts("FSX closed."); disconnect(); haveTelemetry=false;boost=false;break;
+          puts("FSX closed. Boost disabled.");
+          InterlockedExchange(&gBoost,0);
+          disconnect();
+          connectedFlight=false;
+          break;
         }
         if(packet->id==RECV_EXCEPTION) {
-          if(cb>=sizeof(ScException)) {
-            const auto* ex=reinterpret_cast<const ScException*>(packet);
-            printf("FSX SimConnect exception %lu (send id %lu).\n",
-                   (unsigned long)ex->exception,(unsigned long)ex->sendId);
+          if(bytes>=sizeof(ScException)) {
+            const auto* exception=reinterpret_cast<const ScException*>(packet);
+            printf("SimConnect exception %lu; event or simvar may be unsupported.\n",
+                   static_cast<unsigned long>(exception->exception));
           }
           continue;
         }
         if(packet->id==RECV_SIMOBJECT_DATA &&
-           cb>=offsetof(ScObjectData,data)+sizeof(double)*4) {
+           bytes>=offsetof(ScObjectData,data)+sizeof(double)*5) {
           const auto* d=reinterpret_cast<const ScObjectData*>(packet);
-          if(d->requestId==REQ_READ && d->defineCount>=4) {
+          if(d->requestId==REQ_READ && d->defineCount>=5) {
             std::memcpy(&telemetry,&d->data,sizeof(Telemetry));
-            haveTelemetry=true;
-            lastTelemetry=now;
+            if(std::isfinite(telemetry.throttlePct) &&
+               std::isfinite(telemetry.bodyZfps) && std::isfinite(telemetry.tempC)) {
+              connectedFlight=true;
+              lastTelemetry=now;
+              if(!throttleLocal || now-localCommandTime>1500) {
+                commandedThrottle=std::max(0.0,std::min(100.0,telemetry.throttlePct));
+                throttleLocal=false;
+              } else if(fabs(commandedThrottle-telemetry.throttlePct)<1.1) {
+                throttleLocal=false;
+              }
+            }
           }
         }
       }
     }
-    if(boost && sc.connection && haveTelemetry && now-lastTelemetry<4000 &&
-       now-lastWrite>=100) {
-      const double fps=targetMach*soundSpeedFeetPerSecond(telemetry.tempC);
-      if(!writeSpeed(fps)) {
-        puts("ERROR: FSX did not accept the speed command. Boost disabled.");
-        boost=false;
+    const LONG endstop=InterlockedExchange(&gEndStop,-1);
+    if(endstop==0 || endstop==1) {
+      commandedThrottle=endstop==1?100.0:0.0;
+      throttleLocal=true;
+      localCommandTime=now;
+    }
+    LONG wheel=InterlockedExchange(&gWheelSteps,0);
+    LONG fineKeys=InterlockedExchange(&gFineKeySteps,0);
+    wheel=std::max(-20L,std::min(20L,wheel));
+    fineKeys=std::max(-20L,std::min(20L,fineKeys));
+    if(sc.connection && connectedFlight && gEventMappingReady) {
+      if(gBoost) {
+        LONG ticks=wheel+fineKeys;
+        if(ticks) {
+          commandedThrottle=std::max(0.0,std::min(100.0,
+                                    commandedThrottle+2.0*ticks));
+          const DWORD throttleValue=static_cast<DWORD>(
+                                   std::floor(commandedThrottle*16383.0/100.0+0.5));
+          if(emitThrottle(EVT_THROTTLE_SET,throttleValue)) {
+            localCommandTime=now;
+            throttleLocal=true;
+          } else {
+            puts("WARNING: cannot set fine throttle.");
+          }
+        }
+      } else if(wheel) {
+        // When the power-boost toggle is off, the wheel sends ordinary FSX
+        // throttle increment/decrement commands without changing aircraft max.
+        const DWORD evt=wheel>0?EVT_THROTTLE_INCR:EVT_THROTTLE_DECR;
+        for(LONG n=0;n<std::abs(wheel);n++) emitThrottle(evt);
       }
-      lastWrite=now;
     }
-    if(now-lastPrint>=3000 && sc.connection && haveTelemetry) {
-      printf("FSX: %s | target M%.0f | indicated M%.2f | altitude %.0fft | temp %.0fC\n",
-        boost?"BOOST ON":"normal",targetMach,telemetry.mach,
-        telemetry.altitudeFt,telemetry.tempC);
-      if(boost && fabs(telemetry.mach-targetMach)>1.5)
-        puts("NOTE: FSX may be limiting actual speed. Requested speed is not verified.");
-      lastPrint=now;
+    if(gBoost && sc.connection && connectedFlight &&
+       now-lastTelemetry<=3500 && now-lastSend>=100) {
+      const double throttleFraction=std::max(0.0,
+                                std::min(1.0,commandedThrottle/100.0));
+      if(throttleFraction<0.0001) {
+        // Idle means NO boost. Do not set the velocity to zero:
+        // FSX can coast/decelerate like a normal airplane.
+        initializedBoostSpeed=false;
+      } else {
+        const double sound=soundSpeedFeetPerSecond(telemetry.tempC);
+        const double targetMach=20.0*throttleFraction;
+        const double targetFps=targetMach*sound;
+        if(!initializedBoostSpeed) {
+          currentOverrideFps=std::max(0.0,telemetry.bodyZfps);
+          initializedBoostSpeed=true;
+        }
+        // Smooth ramp: at most 0.5 Mach/sec acceleration and
+        // 1 Mach/sec deceleration to avoid immediate speed teleportation.
+        const double increase=sound*0.05;
+        const double decrease=sound*0.10;
+        const double error=targetFps-currentOverrideFps;
+        if(error>0) currentOverrideFps+=std::min(error,increase);
+        else currentOverrideFps-=std::min(-error,decrease);
+        if(!writeSpeed(currentOverrideFps)) {
+          puts("ERROR: FSX rejected boost-speed write. Boost disabled.");
+          InterlockedExchange(&gBoost,0);
+          initializedBoostSpeed=false;
+        }
+      }
+      lastSend=now;
     }
-    Sleep(15);
+    if(now-lastReport>=3000 && sc.connection && connectedFlight) {
+      printf("%s | throttle %.1f%% | target Mach %.2f | indicated Mach %.2f | altitude %.0fft\n",
+             gBoost?"BOOST ON":"Normal",
+             commandedThrottle,
+             gBoost?20.0*commandedThrottle/100.0:0.0,
+             telemetry.mach,telemetry.altitudeFt);
+      lastReport=now;
+    }
+    Sleep(12);
   }
-  for(const auto& hk: hotkeys) UnregisterHotKey(NULL,hk.id);
+  if(gKeyHook)UnhookWindowsHookEx(gKeyHook);
+  if(gMouseHook)UnhookWindowsHookEx(gMouseHook);
+  for(const auto& h: bindings)UnregisterHotKey(NULL,h.id);
   disconnect();
-  if(sc.dll) FreeLibrary(sc.dll);
+  if(sc.dll)FreeLibrary(sc.dll);
   return 0;
 }

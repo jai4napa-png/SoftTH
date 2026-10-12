@@ -1,43 +1,57 @@
-FSX MACH BOOST 1.2 — SIMCONNECT REPAIR BUILD
-===================================
-Run FSX Steam Edition, load a flight, then double-click FSX_Mach20Boost.exe.
-This is a separate external controller; never put it in the FSX game folder.
-It does not alter SoftTH or your calibrated multi-monitor configuration.
+FSX MACH 20 POWER-THROTTLE 2.0 (EXPERIMENTAL)
+============================================
+A stand-alone Windows application, independent from SoftTH.
+No modification to FSX, SoftTH, aircraft.cfg or scenery files.
 
-Ctrl+Alt+1 => Mach 1
-Ctrl+Alt+2 => Mach 2
-Ctrl+Alt+5 => Mach 5
-Ctrl+Alt+0 => Mach 20
-Ctrl+Alt+M => toggle speed override
-Ctrl+Alt+Q => restore pre-boost speed and exit
+CONTROLS
+  Ctrl+Alt+F4  — Toggle Mach20 power on/off (starts OFF)
+  F1           — Idle throttle in either mode (native FSX)
+  F4           — Full throttle in either mode (native FSX)
+  F2/F3        — Normal FSX throttle increments with boost OFF
+                 Boost ON: precision 2% per step (50 steps idle to full)
+  Mouse wheel  — Normal FSX throttle increment events when boost OFF
+                 Boost ON: 2% per wheel detent, 50 steps 0%-100%
+  Ctrl+Alt+W   — Toggle program wheel throttle control on/off
+  Ctrl+Alt+Q   — Exit the controller; leaves flight in FSX
 
-The program starts with boost OFF and target Mach 2. Test at high altitude
-over water, first at Mach 1/2. Save your flight before experimenting.
-At Mach 20 expect physics, scenery, gauges, terrain loading, or crashes to
-behave incorrectly. Speed override is based on local ambient temperature.
-The program reports FSX's AIRSPEED MACH to check actual results. A successful
-API call does not guarantee stable Mach 20 flight.
+When boost ON, engine 1 throttle percentage is used as the power-control
+input. 100% aims for Mach 20. 50% aims for Mach 10. 0% suspends the
+velocity override without freezing the aircraft; FSX drag can slow it.
+Acceleration is rate-limited to about 0.5 Mach per second.
+Deceleration while boosted is at most about 1 Mach per second.
+OFF disables velocity writes entirely, restoring stock FSX engine
+behavior. This does NOT rewind existing extreme airspeed immediately.
+Load a saved flight to return to a normal flight state if required.
 
-The normal physics engine is not replaced, and joystick response at hypersonic
-speed cannot be guaranteed. Disengaging attempts to restore your earlier
-forward speed; a loaded flight should be saved independently as backup.
+IMPORTANT: The engine thrust itself is not physically increased; the
+utility overlays a velocity controller based on stock engine throttle.
+The FSX aerodynamic, collision, engine and scenery models are NOT
+capable of realistic Mach 20 for arbitrary aircraft; crashes, loss
+of control and unstable instruments are possible. Test at high
+altitude over water. Save a flight before using boost.
 
-Requirements:
-- Windows 11 x64, FSX Steam Edition (32-bit)
-- FSX SimConnect client installed (normally part of FSX-SE)
-- No FSUIPC license; no aircraft.cfg editing required.
-- If FSX runs elevated, run this utility elevated too.
+INSTALLATION
+  1. Fully EXIT the previous FSX_Mach20Boost.exe instance; the older
+     1.2 portable version does not need uninstalling.
+  2. EXIT the independent AutoHotkey mouse-wheel-throttle script, or
+     wheel inputs may be doubled/intercepted by the old script.
+  3. Extract ALL bundled files to a new folder outside FSX.
+  4. Start FSX, load an aircraft, launch FSX_Mach20Boost.exe.
+  5. Press Ctrl+Alt+F4 to engage. F4 sets stock throttle to 100%.
+  6. Press Ctrl+Alt+F4 again to disengage.
+  7. If no SimConnect is found, use Repair_SimConnect.cmd included
+     in this ZIP; it installs the official MSI from your FSX directory
+     with explicit consent.
+
+The EXE checks for fsx_softth.exe or fsx.exe foreground windows before
+capturing mouse wheel or F2/F3. In FSX dialog windows, it avoids
+interfering with native Windows mouse interaction.
+Keyboard or mouse hooks may require matching FSX/admin permissions.
+The built-in wheel does not require AutoHotkey.
+
+This is a beta. Validate the SimConnect throttle percentage and
+Mach indication against the display; a successful API call does
+not prove that FSX achieves Mach 20.
 
 Source: tools/mach20/Mach20Boost.cpp
-Build: .github/workflows/build-mach20.yml, GitHub Actions Windows x86
-
-SIMCONNECT ERROR FIX:
-This version probes native WinSxS side-by-side assemblies using manifest
-activation for FSX Steam versions 10.0.62615 and 10.0.62613, plus FSX-SP2
-10.0.61259 and FSX-SP1 10.0.61242. Extract EVERYTHING from the ZIP to
-one folder: the .exe must be next to its four SimConnect_*.manifest files.
-If it still says 32-bit SimConnect client not accessible, run the included
-Repair_SimConnect.cmd. It locates the MSI in your original FSX SDK install,
-asks before installing, and can be given a different FSX root location.
-No third-party DLL downloads. No SoftTH updates. Wheel throttle remains
-available through your independent AutoHotkey script (not bundled here).
+Build: GitHub Actions, Windows x86/MSVC.
