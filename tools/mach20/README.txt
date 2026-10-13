@@ -1,4 +1,4 @@
-FSX MACH 101 POWER-THROTTLE 2.3 — BOOST INDICATOR WHEN ON (EXPERIMENTAL)
+FSX MACH 101 POWER-THROTTLE 2.4 — BOOST INDICATOR WHEN ON (EXPERIMENTAL)
 ============================================
 A stand-alone Windows application, independent from SoftTH.
 No modification to FSX, SoftTH, aircraft.cfg or scenery files.
@@ -25,10 +25,10 @@ The utility still sets the FSX throttle lever proportionally for the
 existing throttle controls; the extreme airspeed comes from its
 separate speed override, not from physically increasing horsepower.
 When enabled, it takes the current throttle position as its initial
-Mach target. Joystick changes to throttle position are quantized to
-the closest integer Mach.
-Acceleration is rate-limited to about 0.5 Mach per second.
-Deceleration while boosted is limited to about 1 Mach per second.
+Mach target. Boost target then remains owned by the utility so that FSX
+throttle telemetry and autopilot do not override your wheel settings.
+Acceleration is rate-limited to about 10 Mach per second.
+Deceleration while boosted is limited to about 14 Mach per second.
 OFF disables velocity writes entirely, restoring stock FSX engine
 behavior. This does NOT rewind existing extreme airspeed immediately.
 Load a saved flight to return to a normal flight state if required.
@@ -88,7 +88,7 @@ V2.2 CHANGE: Boost scale is Mach 0-101, 101 increments of Mach 1;
 Ctrl+Alt+F4 toggles. Old v2.1 wheel capture fallback and diagnostics
 remain. With toggle OFF, F1-F4 and wheel use regular aircraft limits.
 
-ON-SCREEN INDICATOR (V2.3)
+ON-SCREEN INDICATOR (V2.4)
 In boosted mode, a small click-through status HUD appears in the top-right
 of the laptop's physical display. It shows BOOST ON, TARGET MACH, and
 ACTUAL MACH from live FSX telemetry. It is hidden whenever the boost
@@ -97,3 +97,25 @@ not yet active. It does not change SoftTH or any display coordinates.
 Physical windowed fullscreen (SoftTH focus-safety workaround) is expected
 to allow a topmost Windows window above FSX. True exclusive fullscreen
 is not guaranteed to show external GDI windows.
+
+V2.4 SPEED AND WHEEL REPAIR
+* Faster boost ramp: up to 10 Mach/second (previously 0.5) while enabled.
+  This only modifies the requested forward velocity in SimConnect;
+  actual speed can be clamped, reset, or destabilized by FSX.
+* The Mach target remains 0..101 in 101 increments (+/-1 per click).
+* The target no longer snaps back to simulator throttle telemetry.
+* Added Windows RAWINPUT mouse listener for hardware/DirectInput cases
+  where WH_MOUSE_LL does not see a wheel event. Duplicate input from
+  the two listeners is suppressed.
+* Ctrl+Alt+D outputs hardware wheel, low-level hook, target Mach,
+  actual Mach, SimConnect and velocity telemetry diagnostics.
+* The indicator is STILL visible ONLY when boost is on and FSX active.
+* Do not run old Mach Boost or AutoHotkey wheel throttle at the same time.
+
+CONTROL TEST
+Start with FSX and utility running; press Ctrl+Alt+F4 to enable boost,
+press F1, then scroll up 5 detents. TARGET should become Mach 5.
+Press F4 to select Mach 101. Compare TARGET versus ACTUAL separately.
+If ACTUAL is capped, send the console lines beginning SPEED WRITE along
+with Ctrl+Alt+D diagnostics; don't infer a max from gauge alone.
+Do not change SoftTH DLLs or config to test this app.

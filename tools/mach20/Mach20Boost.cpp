@@ -18,6 +18,7 @@
 
 static constexpr DWORD OBJ_USER = 0;
 static constexpr DWORD DATA_FLOAT64 = 4;
+static constexpr DWORD PERIOD_SIM_FRAME = 3;
 static constexpr DWORD PERIOD_SECOND = 4;
 static constexpr DWORD DEF_READ = 100;
 static constexpr DWORD DEF_WRITE = 101;
@@ -63,8 +64,8 @@ struct ScApi {
 static ScApi sc;
 
 // Mach-boost mode is entirely external to SoftTH; it reuses FSX's
-// native F1/F4 throttle commands. Only F2/F3 and the wheel receive
-// 2%-per-step treatment when boosted.
+// native F1/F4 throttle commands. When boosted, F2/F3 and the wheel
+// move one integer Mach target per input; actual Mach is simulator-limited.
 static volatile LONG gBoost = 0;
 static volatile LONG gWheelActive = 1;
 static volatile LONG gWheelSteps = 0;
@@ -81,6 +82,15 @@ static volatile LONG gWheelSuppressed = 0;
 static volatile LONG gWheelFallbackEvents = 0;
 static volatile LONG gWheelSimConnectEvents = 0;
 static volatile LONG gMouseScrollClicks = 0;
+static volatile LONG gRawWheelMessages = 0;
+static volatile LONG gRawFallbackSteps = 0;
+static volatile LONG gRawUnmatched = 0;
+static volatile LONG gPendingRawDelta = 0;
+static volatile LONG gLastRawTick = 0;
+static volatile LONG gLastHookWheelTick = 0;
+static bool gRawInputRegistered = false;
+static constexpr double MACH_ACCEL_PER_SECOND = 10.0;
+static constexpr double MACH_DECEL_PER_SECOND = 14.0;
 
 // The informational overlay is a native Windows click-through window,
 // entirely separate from SoftTH/D3D9 and only visible in active boost.
@@ -120,6 +130,31 @@ static bool focusedFSX(); // forward declaration for non-activating overlay
 static LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT message,
                                           WPARAM wp, LPARAM lp) {
   switch(message) {
+    case WM_INPUT: {
+      // Independent Windows RAW mouse input. Some SoftTH/DirectInput
+      // configurations swallow WM_MOUSEWHEEL, but a background raw-input
+      // sink still receives the physical wheel movement.
+      UINT bytes=0;
+      if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lp),RID_INPUT,
+                         NULL,&bytes,sizeof(RAWINPUTHEADER))==0 &&
+         bytes>=sizeof(RAWINPUTHEADER) && bytes<=65536) {
+        std::vector<BYTE> data(bytes);
+        if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lp),RID_INPUT,
+                           data.data(),&bytes,sizeof(RAWINPUTHEADER))==bytes) {
+          const RAWINPUT* raw=reinterpret_cast<const RAWINPUT*>(data.data());
+          if(raw->header.dwType==RIM_TYPEMOUSE &&
+             (raw->data.mouse.usButtonFlags & RI_MOUSE_WHEEL)) {
+            InterlockedIncrement(&gRawWheelMessages);
+            if(gWheelActive && focusedFSX()) {
+              const SHORT delta=static_cast<SHORT>(raw->data.mouse.usButtonData);
+              InterlockedExchangeAdd(&gPendingRawDelta,delta);
+              InterlockedExchange(&gLastRawTick,static_cast<LONG>(GetTickCount()));
+            }
+          }
+        }
+      }
+      return DefWindowProcW(hwnd,message,wp,lp);
+    }
     case WM_NCHITTEST:
       return HTTRANSPARENT; // never capture mouse clicks or wheel
     case WM_MOUSEACTIVATE:
@@ -206,6 +241,20 @@ static void initializeOverlay(HINSTANCE instance) {
   // Full opacity; 100% alpha. Transparency here refers to input pass-through.
   SetLayeredWindowAttributes(gOverlay,0,255,LWA_ALPHA);
   ShowWindow(gOverlay,SW_HIDE);
+
+  // RIDEV_INPUTSINK continues to receive raw wheel events when the
+  // simulator uses DirectInput, provided FSX itself has focus.
+  RAWINPUTDEVICE dev={};
+  dev.usUsagePage=0x01; // Generic desktop
+  dev.usUsage=0x02; // Mouse
+  dev.dwFlags=RIDEV_INPUTSINK;
+  dev.hwndTarget=gOverlay;
+  gRawInputRegistered=RegisterRawInputDevices(&dev,1,sizeof(dev))!=FALSE;
+  if(gRawInputRegistered)
+    puts("Raw mouse wheel listener INSTALLED (DirectInput fallback).");
+  else
+    printf("WARNING: raw mouse listener unavailable, Windows error %lu.\n",
+           static_cast<unsigned long>(GetLastError()));
 }
 
 static void updateOverlay(bool requested, int machTarget,
@@ -261,6 +310,7 @@ static LRESULT CALLBACK MouseHook(int n,WPARAM msg,LPARAM data) {
   if(n==HC_ACTION && msg==WM_MOUSEWHEEL) {
     InterlockedIncrement(&gWheelSeen);
     if(gWheelActive && focusedFSX()) {
+      InterlockedExchange(&gLastHookWheelTick,static_cast<LONG>(GetTickCount()));
       const auto* info=reinterpret_cast<const MSLLHOOKSTRUCT*>(data);
       const int delta=static_cast<short>(HIWORD(info->mouseData));
       gWheelRemainder+=delta;
@@ -506,7 +556,10 @@ static bool connect() {
       SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_INCR,"THROTTLE_INCR")) &&
       SUCCEEDED(sc.MapEvent(sc.connection,EVT_THROTTLE_DECR,"THROTTLE_DECR"));
   if(!gEventMappingReady) puts("WARNING: throttle event mapping unavailable.");
-  if(FAILED(sc.Request(sc.connection,REQ_READ,DEF_READ,OBJ_USER,PERIOD_SECOND,0,0,0,0))) {
+  // Sample every few sim frames instead of once/second: the actual
+  // aircraft can lose enormous velocity to its own physics between writes.
+  if(FAILED(sc.Request(sc.connection,REQ_READ,DEF_READ,OBJ_USER,
+                       PERIOD_SIM_FRAME,0,0,5,0))) {
     puts("Unable to request live flight telemetry."); disconnect(); return false;
   }
   puts("Connected to FSX SimConnect.");
@@ -523,7 +576,7 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH 101 POWER-THROTTLE 2.3 — ON-ONLY SCREEN INDICATOR");
+  puts("FSX MACH 101 POWER-THROTTLE 2.4 — SPEED AND WHEEL DIAGNOSTICS");
   puts("Separate program; no SoftTH changes or aircraft file edits.");
   puts("Mach 101 boost OFF by default; airplane throttle remains normal.");
   puts("On-screen indicator appears ONLY with boost ON and FSX foreground.");
@@ -531,12 +584,14 @@ int main() {
   puts("F1 = 0 percent throttle; F4 = 100 percent throttle");
   puts("F2/F3 = normal steps OFF; +1/-1 Mach per press ON");
   puts("Mouse wheel = native throttle steps OFF; +1/-1 Mach per notch ON");
+  puts("Accepts low-level wheel events or RAW mouse input (DirectInput fallback).");
   puts("Ctrl+Alt+W = wheel mapping ON / OFF");
   puts("Ctrl+Alt+D = diagnostic status and wheel event counters");
   puts("Wheel control works in normal mode even without SimConnect.");
   puts("Ctrl+Alt+Q = quit");
   puts("");
-  puts("NOTE: Only a simulation speed override, NOT accurate Mach 20 physics.");
+  puts("NOTE: Target Mach is NOT necessarily achievable actual Mach.");
+  puts("This utility overrides velocity; FSX physics may clamp or reset it.");
   puts("IMPORTANT: EXIT your previous Mach Boost program and wheel AutoHotkey");
   puts("script so there are no competing throttle controllers.");
   puts("");
@@ -558,6 +613,10 @@ int main() {
              static_cast<unsigned long>(GetLastError()));
   }
   initializeOverlay(GetModuleHandleW(NULL));
+  // Discover the FSX process immediately, rather than waiting for the
+  // first background refresh. A 1.5-second identification delay previously
+  // caused the first wheel movements to disappear.
+  gFSXPid=discoverFSXProcess();
   gMouseHook=SetWindowsHookExW(WH_MOUSE_LL,MouseHook,GetModuleHandleW(NULL),0);
   gKeyHook=SetWindowsHookExW(WH_KEYBOARD_LL,KeyHook,GetModuleHandleW(NULL),0);
   if(!gMouseHook)
@@ -574,6 +633,10 @@ int main() {
   DWORD lastTelemetry=0,lastConnectTry=GetTickCount()-3000,lastSend=0,lastReport=0;
   DWORD lastPidScan=GetTickCount()-3000;
   LONG lastReportedWheel=0;
+  LONG lastRawReported=0;
+  DWORD lastMouseHookRefresh=GetTickCount();
+  DWORD lastSpeedWriteWarning=0;
+  DWORD lastSlowActualWarning=0;
   double commandedThrottle=0.0;
   // Boost throttle is quantized to 101 one-Mach increments: 0..101
   // (102 reachable targets, including zero). No floating-step drift.
@@ -646,12 +709,39 @@ int main() {
                static_cast<long>(gMouseScrollClicks),
                static_cast<long>(gWheelSimConnectEvents),
                static_cast<long>(gWheelFallbackEvents));
+        printf("RAW wheel messages=%ld fallback steps=%ld pendingDelta=%ld listener=%s; target Mach=%d actual=%.2f, bodyZ=%.1f fps\n",
+               static_cast<long>(gRawWheelMessages),
+               static_cast<long>(gRawFallbackSteps),
+               static_cast<long>(gPendingRawDelta),
+               gRawInputRegistered?"yes":"NO",
+               boostStep,telemetry.mach,telemetry.bodyZfps);
       }
     }
     DWORD now=GetTickCount();
-    if(now-lastPidScan>=1500) {
+    if(now-lastPidScan>=500) {
       gFSXPid=discoverFSXProcess();
       lastPidScan=now;
+    }
+    // RAW wheel events arrive after the low-level hook on many systems.
+    // Wait a short interval then discard duplicates of low-level events.
+    // If the low-level hook saw no wheel, raw input becomes the fallback.
+    if(gRawInputRegistered && gPendingRawDelta &&
+       now-static_cast<DWORD>(gLastRawTick)>=65) {
+      LONG rawDelta=InterlockedExchange(&gPendingRawDelta,0);
+      if(now-static_cast<DWORD>(gLastHookWheelTick)>200) {
+        const LONG steps=rawDelta/120;
+        if(steps) {
+          InterlockedExchangeAdd(&gWheelSteps,steps);
+          InterlockedExchangeAdd(&gRawFallbackSteps,steps);
+          if(now-lastRawReported>250) {
+            printf("RAW WHEEL FALLBACK %ld step(s)\n",static_cast<long>(steps));
+            lastRawReported=now;
+          }
+        } else if(rawDelta) {
+          // Small high-resolution deltas accumulate until one detent.
+          InterlockedExchangeAdd(&gPendingRawDelta,rawDelta);
+        }
+      }
     }
     if(simconnectAvailable && !sc.connection && now-lastConnectTry>=3000) {
       lastConnectTry=now;
@@ -694,15 +784,12 @@ int main() {
               lastTelemetry=now;
               if(!throttleLocal || now-localCommandTime>1500) {
                 const double pct=std::max(0.0,std::min(100.0,telemetry.throttlePct));
-                if(gBoost) {
-                  // Native joystick/autothrottle changes can still adjust
-                  // the scale, quantized to an integer Mach target.
-                  boostStep=std::max(0,std::min(MAX_BOOST_MACH,
-                     static_cast<int>(std::lround(pct*MAX_BOOST_MACH/100.0))));
-                  commandedThrottle=100.0*boostStep/MAX_BOOST_MACH;
-                } else {
+                if(!gBoost) {
                   commandedThrottle=pct;
                 }
+                // Critical fix: while boosted, the integer target is
+                // owned by our controller. Native FSX throttle lag,
+                // autopilot or data quantization must not reset it.
                 throttleLocal=false;
               } else if(fabs(commandedThrottle-telemetry.throttlePct)<1.1) {
                 throttleLocal=false;
@@ -778,10 +865,14 @@ int main() {
           currentOverrideFps=std::max(0.0,telemetry.bodyZfps);
           initializedBoostSpeed=true;
         }
-        // Smooth ramp: at most 0.5 Mach/sec acceleration and
-        // 1 Mach/sec deceleration to avoid immediate speed teleportation.
-        const double increase=sound*0.05;
-        const double decrease=sound*0.10;
+        // v2.3 advanced just 0.05 Mach per write (0.5 Mach/sec).
+        // That required more than THREE MINUTES to reach Mach 101!
+        // Advance up to ten Mach/sec, based on elapsed REAL time, and
+        // keep writing velocity approximately 10 times/sec.
+        const double secs=std::max(0.001,std::min(0.25,
+                           static_cast<double>(now-lastSend)/1000.0));
+        const double increase=sound*MACH_ACCEL_PER_SECOND*secs;
+        const double decrease=sound*MACH_DECEL_PER_SECOND*secs;
         const double error=targetFps-currentOverrideFps;
         if(error>0) currentOverrideFps+=std::min(error,increase);
         else currentOverrideFps-=std::min(-error,decrease);
@@ -789,6 +880,20 @@ int main() {
           puts("ERROR: FSX rejected boost-speed write. Boost disabled.");
           InterlockedExchange(&gBoost,0);
           initializedBoostSpeed=false;
+        }
+        // Confirmed API success does not mean the simulator is actually
+        // sustaining that requested velocity. Report both values.
+        if(now-lastSpeedWriteWarning>3000) {
+          printf("SPEED WRITE: desired Mach %d; command %.0f fps (~Mach %.1f); actual Mach %.2f, actual body-Z %.0f fps\n",
+                 boostStep,currentOverrideFps,currentOverrideFps/sound,
+                 telemetry.mach,telemetry.bodyZfps);
+          lastSpeedWriteWarning=now;
+        }
+        if(boostStep>=10 && telemetry.mach<0.40*boostStep &&
+           now-lastSlowActualWarning>10000 && now-lastTelemetry<1000) {
+          printf("NOTICE: actual Mach %.2f is far below target Mach %d. FSX may limit this aircraft or override its velocity.\n",
+                 telemetry.mach,boostStep);
+          lastSlowActualWarning=now;
         }
       }
       lastSend=now;
