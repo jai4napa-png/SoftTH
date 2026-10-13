@@ -44,6 +44,7 @@ extern HWND SoftTHPresentWindow;
 extern volatile int FSXVirtualMonitorActive;
 static bool fsxForegroundIsDialog();
 static bool fsxWindowBelongsToThisProcess(HWND hWnd);
+static bool fsxMouseOverNativeDialog(const POINT *physical);
 __declspec(thread) static bool fsxCoordinateHookGuard = false;
 
 // FSX needs virtual cursor coordinates for its 5760x2160 render/UI hit testing,
@@ -270,6 +271,9 @@ BOOL WINAPI NewGetPhysicalCursorPos(LPPOINT point)
   //dbg_input("NewGetPhysicalCursorPos %dx%d", point->x, point->y);
   if(isHooked(srcMod) && SoftTHActive)
   {
+    if(!ret || !point || fsxForegroundIsDialog() ||
+       fsxMouseOverNativeDialog(point))
+      return ret;
     // Find window under cursor, map to backbuffer coordinate
     pointToVirtual(point);
     return ret;
@@ -294,6 +298,16 @@ BOOL WINAPI NewGetCursorPos(LPPOINT point)
   fsxLastCursorWasVirtual = false;
   if((isHooked(srcMod) || srcMod == hLibD3D9) && SoftTHActive)
   {
+    if(!ret || !point)return ret;
+    if(fsxForegroundIsDialog() || fsxMouseOverNativeDialog(point)) {
+      static int logs=0;
+      if(logs<12) {
+        dbg("FSX native dialog GetCursorPos left PHYSICAL: %d,%d",
+            point->x,point->y);
+        ++logs;
+      }
+      return ret;
+    }
     POINT physical = *point;
     POINT vp = physical;
     if((FSXVirtualMonitorActive ?
@@ -405,8 +419,11 @@ BOOL WINAPI NewGetCursorInfo(CURSORINFO *pci)
   BOOL ret = origFunc(pci);
 
   SOURCE_MODULE(srcMod);
-  if((isHooked(srcMod)) && SoftTHActive)
+  if(isHooked(srcMod) && SoftTHActive)
   {
+    if(!ret || !pci || fsxForegroundIsDialog() ||
+       fsxMouseOverNativeDialog(&pci->ptScreenPos))
+      return ret;
     pointToVirtual(&pci->ptScreenPos);
     return ret;
   }
@@ -420,7 +437,8 @@ BOOL WINAPI NewSetPhysicalCursorPos(int x, int y)
 	typedef BOOL (WINAPI*OCALL)(int, int);
 	const static OCALL origFunc = (OCALL) getHookCall("SetPhysicalCursorPos");
 
-  if(!SoftTHActive || config.getNumAdditionalHeads() == 0)
+  if(!SoftTHActive || config.getNumAdditionalHeads() == 0 ||
+     fsxForegroundIsDialog())
     return origFunc(x, y);
 
   SOURCE_MODULE(srcMod);
@@ -443,7 +461,8 @@ BOOL WINAPI NewSetCursorPos(int x, int y)
 	typedef BOOL (WINAPI*OCALL)(int, int);
 	const static OCALL origFunc = (OCALL) getHookCall("SetCursorPos");
 
-  if(!SoftTHActive || config.getNumAdditionalHeads() == 0)
+  if(!SoftTHActive || config.getNumAdditionalHeads() == 0 ||
+     fsxForegroundIsDialog())
     return origFunc(x, y);
 
   SOURCE_MODULE(srcMod);
@@ -555,7 +574,7 @@ int WINAPI NewGetSystemMetrics(int nIndex)
   int ret = origFunc(nIndex);
 
   SOURCE_MODULE(srcMod);
-  if(isHooked(srcMod) && SoftTHActive)
+  if(isHooked(srcMod) && SoftTHActive && !fsxForegroundIsDialog())
   {
     int v = ret;
     bool overrideMetric = true;
@@ -869,6 +888,22 @@ static bool fsxMonitorVirtualizationCaller(HMODULE mod)
   return _stricmp(base,"g2d.dll")==0;
 }
 
+
+static bool fsxMouseOverNativeDialog(const POINT *physical)
+{
+  if(!physical)return false;
+  HWND hwnd=WindowFromPoint(*physical);
+  if(!hwnd)return false;
+  HWND root=GetAncestor(hwnd,GA_ROOT);
+  if(!root)root=hwnd;
+  DWORD pid=0;
+  GetWindowThreadProcessId(root,&pid);
+  if(pid!=GetCurrentProcessId())return false;
+  char cls[64]={0};
+  GetClassNameA(root,cls,sizeof(cls));
+  return strcmp(cls,"#32770")==0 || strcmp(cls,"#32768")==0;
+}
+
 static bool fsxForegroundIsDialog()
 {
   HWND fg=GetForegroundWindow();
@@ -895,6 +930,13 @@ static bool fsxWindowBelongsToThisProcess(HWND hWnd)
   // Never virtualize native Windows menu/dialog windows.
   if(strcmp(cls,"#32768")==0 || strcmp(cls,"#32770")==0)
     return false;
+  HWND root=GetAncestor(hWnd,GA_ROOT);
+  if(root && root!=hWnd) {
+    char rootCls[64]={0};
+    GetClassNameA(root,rootCls,sizeof(rootCls));
+    if(strcmp(rootCls,"#32770")==0 || strcmp(rootCls,"#32768")==0)
+      return false;
+  }
   return true;
 }
 

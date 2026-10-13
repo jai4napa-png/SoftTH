@@ -18,13 +18,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifdef _WIN64
-  #define SOFTTH_VERSION "SoftTH v3.51 x64 FSX-Win11 FSX-SE Win11 native centered menus + DirectInput focus"
-  #define SOFTTH_VERSIONW L"SoftTH v3.51 x64 FSX-SE Win11 native centered menus + DirectInput focus"
-  #define SOFTTHDEVID "SOFTTH\\351\\X64\\FSXWIN11"
-  #define SOFTTHDEVIDW L"SOFTTH\\351\\X64\\FSXWIN11"
+  #define SOFTTH_VERSION "SoftTH v3.52 x64 FSX-Win11 FSX-SE Win11 native dialog mouse fix + DirectInput focus"
+  #define SOFTTH_VERSIONW L"SoftTH v3.52 x64 FSX-SE Win11 native dialog mouse fix + DirectInput focus"
+  #define SOFTTHDEVID "SOFTTH\\352\\X64\\FSXWIN11"
+  #define SOFTTHDEVIDW L"SOFTTH\\352\\X64\\FSXWIN11"
 #else
-  #define SOFTTH_VERSION "SoftTH v3.51 x86 FSX-Win11 FSX-SE Win11 native centered menus + DirectInput focus"
-  #define SOFTTH_VERSIONW L"SoftTH v3.51 x86 FSX-SE Win11 native centered menus + DirectInput focus"
-  #define SOFTTHDEVID "SOFTTH\\351\\X86\\FSXWIN11"
-  #define SOFTTHDEVIDW L"SOFTTH\\351\\X86\\FSXWIN11"
+  #define SOFTTH_VERSION "SoftTH v3.52 x86 FSX-Win11 FSX-SE Win11 native dialog mouse fix + DirectInput focus"
+  #define SOFTTH_VERSIONW L"SoftTH v3.52 x86 FSX-SE Win11 native dialog mouse fix + DirectInput focus"
+  #define SOFTTHDEVID "SOFTTH\\352\\X86\\FSXWIN11"
+  #define SOFTTHDEVIDW L"SOFTTH\\352\\X86\\FSXWIN11"
 #endif

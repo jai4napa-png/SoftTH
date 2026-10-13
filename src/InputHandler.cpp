@@ -134,6 +134,28 @@ static void fsxInstallPopupWatcher()
 }
 
 
+
+// Native FSX dialogs use PHYSICAL Windows mouse coordinates, even while
+// SoftTH is virtually rendering the flight behind them. This includes
+// dialog child windows (Button/Edit classes), not only the #32770 root.
+static bool fsxNativeDialogRoot(HWND hwnd)
+{
+  if(!hwnd)return false;
+  HWND root=GetAncestor(hwnd, GA_ROOT);
+  if(!root)root=hwnd;
+  DWORD pid=0;
+  GetWindowThreadProcessId(root,&pid);
+  if(pid!=GetCurrentProcessId())return false;
+  char cls[64]={0};
+  GetClassNameA(root,cls,sizeof(cls));
+  return strcmp(cls,"#32770")==0 || strcmp(cls,"#32768")==0;
+}
+static bool fsxNativeDialogMouseMessage(HWND hwnd)
+{
+  return fsxNativeDialogRoot(GetForegroundWindow()) ||
+         fsxNativeDialogRoot(hwnd);
+}
+
 static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
 {
   dbg("InputHandler: GetMsgProc");
@@ -151,6 +173,24 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
   WPARAM wParam = msg->wParam;
   LPARAM lParam = msg->lParam;
   UINT wmsg = msg->message;
+
+  if(SoftTHActive && FSXVirtualMonitorActive &&
+     fsxNativeDialogMouseMessage(msg->hwnd)) {
+    static int dialogEvents=0;
+    if(dialogEvents<30 &&
+       (wmsg==WM_LBUTTONDOWN || wmsg==WM_LBUTTONUP ||
+        wmsg==WM_MOUSEMOVE || wmsg==WM_RBUTTONDOWN ||
+        wmsg==WM_RBUTTONUP)) {
+      char cls[64]={0};
+      if(msg->hwnd) GetClassNameA(msg->hwnd,cls,sizeof(cls));
+      dbg("FSX native dialog mouse left PHYSICAL: event=0x%X hwnd=0x%08X class=<%s> lParam=%d,%d pt=%d,%d",
+          wmsg,msg->hwnd,cls,
+          GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),
+          msg->pt.x,msg->pt.y);
+      ++dialogEvents;
+    }
+    return CallNextHookEx(NULL,nCode,wParamIn,lParamIn);
+  }
 
   if(wmsg==WM_RBUTTONDOWN || wmsg==WM_RBUTTONUP ||
      wmsg==WM_RBUTTONDBLCLK || wmsg==WM_CONTEXTMENU) {
