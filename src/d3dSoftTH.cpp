@@ -1078,6 +1078,34 @@ HRESULT IDirect3DDevice9SoftTH::PresentEx(CONST RECT* pSourceRect,CONST RECT* pD
       if(fgw == outDevs[i].output->getWindow())
         isSoftTHOutput = true;
 
+    // Win32 menu windows (#32768) temporarily own foreground focus.
+    // Treat an FSX-owned menu as part of FSX, not an application switch.
+    // Otherwise Present() minimizes all three SoftTH outputs while the
+    // user is opening the menu and stops displaying its menu contents.
+    if(!isSoftTHOutput && fgw && FSXVirtualMonitorActive)
+    {
+      DWORD candidatePid=0;
+      GetWindowThreadProcessId(fgw,&candidatePid);
+      if(candidatePid==GetCurrentProcessId()) {
+        char popupClass[64]={0};
+        GetClassNameA(fgw,popupClass,sizeof(popupClass));
+        if(strcmp(popupClass,"#32768")==0) {
+          static HWND lastPopupLogged=NULL;
+          if(lastPopupLogged!=fgw) {
+            RECT popupRect={0};
+            GetWindowRect(fgw,&popupRect);
+            dbg("FSX native context menu foreground: hwnd=0x%08X rect=%ld,%ld-%ld,%ld; keeping outputs active",
+                fgw,popupRect.left,popupRect.top,popupRect.right,popupRect.bottom);
+            lastPopupLogged=fgw;
+          }
+          // Popup menu must remain above FSX-owned secondary windows.
+          SetWindowPos(fgw,HWND_TOPMOST,0,0,0,0,
+                       SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+          isSoftTHOutput=true;
+        }
+      }
+    }
+
     if(!isSoftTHOutput)
     {
       char foo[256] = {0};

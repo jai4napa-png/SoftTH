@@ -138,6 +138,23 @@ static void fsxInstallPopupWatcher()
 // Native FSX dialogs use PHYSICAL Windows mouse coordinates, even while
 // SoftTH is virtually rendering the flight behind them. This includes
 // dialog child windows (Button/Edit classes), not only the #32770 root.
+
+// Menu diagnostics are non-destructive. Menu HWNDs belong to the OS,
+// not to SoftTH's off-screen viewport. They must not be mapped as
+// cockpit coordinates while the menu is being used.
+static bool fsxNativePopupMenuTarget(HWND hwnd)
+{
+  if(!hwnd)return false;
+  HWND root=GetAncestor(hwnd,GA_ROOT);
+  if(!root)root=hwnd;
+  DWORD pid=0;
+  GetWindowThreadProcessId(root,&pid);
+  if(pid!=GetCurrentProcessId())return false;
+  char cls[64]={0};
+  GetClassNameA(root,cls,sizeof(cls));
+  return strcmp(cls,"#32768")==0;
+}
+
 static bool fsxNativeDialogRoot(HWND hwnd)
 {
   if(!hwnd)return false;
@@ -173,6 +190,21 @@ static LRESULT CALLBACK GetMsgProc(int nCode, WPARAM wParamIn, LPARAM lParamIn)
   WPARAM wParam = msg->wParam;
   LPARAM lParam = msg->lParam;
   UINT wmsg = msg->message;
+
+  // Track actual menu cursor input independently of right-click delivery.
+  if(SoftTHActive && FSXVirtualMonitorActive &&
+     fsxNativePopupMenuTarget(msg->hwnd) &&
+     (wmsg==WM_MOUSEMOVE || wmsg==WM_LBUTTONDOWN ||
+      wmsg==WM_LBUTTONUP || wmsg==WM_RBUTTONDOWN ||
+      wmsg==WM_RBUTTONUP)) {
+    static int popupInputLogs=0;
+    if(popupInputLogs<24) {
+      dbg("FSX native popup input: event=0x%X target=0x%08X physical=%d,%d",
+          wmsg,msg->hwnd,msg->pt.x,msg->pt.y);
+      popupInputLogs++;
+    }
+    return CallNextHookEx(NULL,nCode,wParamIn,lParamIn);
+  }
 
   if(SoftTHActive && FSXVirtualMonitorActive &&
      fsxNativeDialogMouseMessage(msg->hwnd)) {
