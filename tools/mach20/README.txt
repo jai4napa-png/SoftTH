@@ -1,4 +1,4 @@
-FSX MACH 101 POWER-THROTTLE 2.4 — BOOST INDICATOR WHEN ON (EXPERIMENTAL)
+FSX MACH 101 POWER-THROTTLE 2.5 — BOOST INDICATOR WHEN ON (EXPERIMENTAL)
 ============================================
 A stand-alone Windows application, independent from SoftTH.
 No modification to FSX, SoftTH, aircraft.cfg or scenery files.
@@ -45,7 +45,8 @@ INSTALLATION
      1.2 portable version does not need uninstalling.
   2. EXIT the independent AutoHotkey mouse-wheel-throttle script, or
      wheel inputs may be doubled/intercepted by the old script.
-  3. Extract ALL bundled files to a new folder outside FSX.
+  3. Place FSX_Mach20Boost.exe in a folder outside FSX; it no longer
+     requires external SimConnect_*.manifest files.
   4. Start FSX, load an aircraft, launch FSX_Mach20Boost.exe.
   5. Press Ctrl+Alt+F4 to engage. F4 sets stock throttle to 100%.
   6. Press Ctrl+Alt+F4 again to disengage.
@@ -54,8 +55,9 @@ INSTALLATION
      with explicit consent.
 
 The EXE checks for fsx_softth.exe or fsx.exe foreground windows before
-capturing mouse wheel or F2/F3. In FSX dialog windows, it avoids
-interfering with native Windows mouse interaction.
+capturing mouse wheel or F2/F3. Some FSX fullscreen/menu states foreground
+a #32770 window, so wheel interception uses FSX process ownership alone.
+Press Ctrl+Alt+W to disable wheel mapping while using dialogs.
 Keyboard or mouse hooks may require matching FSX/admin permissions.
 The built-in wheel does not require AutoHotkey.
 
@@ -88,7 +90,7 @@ V2.2 CHANGE: Boost scale is Mach 0-101, 101 increments of Mach 1;
 Ctrl+Alt+F4 toggles. Old v2.1 wheel capture fallback and diagnostics
 remain. With toggle OFF, F1-F4 and wheel use regular aircraft limits.
 
-ON-SCREEN INDICATOR (V2.4)
+ON-SCREEN INDICATOR (V2.5)
 In boosted mode, a small click-through status HUD appears in the top-right
 of the laptop's physical display. It shows BOOST ON, TARGET MACH, and
 ACTUAL MACH from live FSX telemetry. It is hidden whenever the boost
@@ -98,7 +100,7 @@ Physical windowed fullscreen (SoftTH focus-safety workaround) is expected
 to allow a topmost Windows window above FSX. True exclusive fullscreen
 is not guaranteed to show external GDI windows.
 
-V2.4 SPEED AND WHEEL REPAIR
+V2.5 SPEED AND WHEEL REPAIR
 * Faster boost ramp: up to 10 Mach/second (previously 0.5) while enabled.
   This only modifies the requested forward velocity in SimConnect;
   actual speed can be clamped, reset, or destabilized by FSX.
@@ -119,3 +121,17 @@ Press F4 to select Mach 101. Compare TARGET versus ACTUAL separately.
 If ACTUAL is capped, send the console lines beginning SPEED WRITE along
 with Ctrl+Alt+D diagnostics; don't infer a max from gauge alone.
 Do not change SoftTH DLLs or config to test this app.
+
+V2.5: SELF-CONTAINED SIMCONNECT ACTIVATION AND WHEEL FIX
+* Standalone EXE redownload no longer requires four external manifest files.
+  It creates a temporary, x86 SimConnect activation manifest, loads the
+  OS-installed, official runtime, then deletes the temporary manifest.
+* Windows still needs the real 32-bit SimConnect runtime: close FSX, then
+  double-click your official bundled SimConnect.msi at:
+  C:\Program Files (x86)\Steam\steamapps\common\FSX\SDK\Core Utilities Kit\SimConnect SDK\lib\SimConnect.msi
+* FOREGROUND diagnostics include actual Windows class and title.
+* WH_MOUSE_LL and RAWINPUT wheel detection now accept any foreground
+  window in the FSX process, including #32770 UI states. To use the
+  wheel for scrolling native dialogs, turn wheel mapping OFF first
+  with Ctrl+Alt+W.
+* No SoftTH DLL or display configuration changes.

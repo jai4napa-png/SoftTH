@@ -301,10 +301,12 @@ static bool focusedFSX() {
   if(!window)return false;
   DWORD fgPid=0;
   GetWindowThreadProcessId(window,&fgPid);
-  if(fgPid!=fsxPid)return false;
-  char cls[32]={};
-  GetClassNameA(window,cls,sizeof(cls));
-  return strcmp(cls,"#32770")!=0 && strcmp(cls,"#32768")!=0;
+  // Critical wheel fix: do not exclude every FSX-owned #32770
+  // foreground window. Some FSX fullscreen/windowed-main-UI states
+  // use this class even while the flight is displayed. The previous
+  // check saw wheel events but silently rejected all of them.
+  // Ctrl+Alt+W turns wheel-to-throttle off for interacting with menus.
+  return fgPid==fsxPid;
 }
 static LRESULT CALLBACK MouseHook(int n,WPARAM msg,LPARAM data) {
   if(n==HC_ACTION && msg==WM_MOUSEWHEEL) {
@@ -411,15 +413,69 @@ static bool tryDll(HMODULE dll, const char* description) {
   printf("Loaded FSX SimConnect: %s\n",description);
   return true;
 }
+// The EXE must remain self-contained: previous releases silently required
+// four *.manifest files BESIDE the program. A standalone EXE redownload
+// therefore lost all SxS activation attempts. Build the same Microsoft
+// SimConnect dependency manifest in %TEMP% only for CreateActCtx, and
+// erase it as soon as the loader has completed.
+static bool createTransientManifest(const char* label,std::wstring& tmpPath) {
+  tmpPath.clear();
+  const char* ver=strstr(label,"10.0.");
+  if(!ver)return false;
+  wchar_t dir[MAX_PATH]={},name[MAX_PATH]={};
+  DWORD n=GetTempPathW(MAX_PATH,dir);
+  if(!n || n>=MAX_PATH || !GetTempFileNameW(dir,L"MXB",0,name)) {
+    printf("SimConnect temporary manifest path unavailable (Windows %lu).\n",
+           static_cast<unsigned long>(GetLastError()));
+    return false;
+  }
+  tmpPath=name;
+  std::string xml=std::string("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
+      +"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n"
+      +"<assemblyIdentity type=\"win32\" name=\"FSX.MachBoost.SimConnect.Activation\" version=\"1.0.0.0\" processorArchitecture=\"x86\" />\n"
+      +"<dependency><dependentAssembly><assemblyIdentity type=\"win32\" name=\"Microsoft.FlightSimulator.SimConnect\" version=\""
+      +ver+"\" processorArchitecture=\"x86\" publicKeyToken=\"67c7c14424d61b5b\" />"
+      +"</dependentAssembly></dependency></assembly>\n";
+  HANDLE file=CreateFileW(tmpPath.c_str(),GENERIC_WRITE,0,NULL,CREATE_ALWAYS,
+                          FILE_ATTRIBUTE_TEMPORARY,NULL);
+  if(file==INVALID_HANDLE_VALUE) {
+    printf("Cannot write temporary SimConnect manifest (Windows %lu).\n",
+           static_cast<unsigned long>(GetLastError()));
+    DeleteFileW(tmpPath.c_str());
+    tmpPath.clear();
+    return false;
+  }
+  DWORD written=0;
+  BOOL ok=WriteFile(file,xml.data(),static_cast<DWORD>(xml.size()),&written,NULL);
+  CloseHandle(file);
+  if(!ok || written!=xml.size()) {
+    puts("Cannot finish temporary SimConnect activation manifest.");
+    DeleteFileW(tmpPath.c_str());
+    tmpPath.clear();
+    return false;
+  }
+  return true;
+}
 static bool loadWithManifest(const std::wstring& path,const char* version) {
-  if(!isExistingFile(path))return false;
+  std::wstring temporary;
+  std::wstring source=path;
+  if(!isExistingFile(path)) {
+    if(!createTransientManifest(version,temporary))
+      return false;
+    source=temporary;
+  }
   ACTCTXW act={};
   act.cbSize=sizeof(act);
-  act.lpSource=path.c_str();
+  act.lpSource=source.c_str();
   HANDLE handle=CreateActCtxW(&act);
   if(handle==INVALID_HANDLE_VALUE) {
-    printf("SimConnect %s activation unavailable (Windows error %lu).\n",
-           version,static_cast<unsigned long>(GetLastError()));
+    const DWORD error=GetLastError();
+    printf("SimConnect %s activation FAILED (Windows error %lu). %s\n",
+           version,static_cast<unsigned long>(error),
+           error==ERROR_SXS_ASSEMBLY_NOT_FOUND?
+             "The 32-bit client assembly must be installed from FSX's official SimConnect.msi.":
+             "Check whether the SimConnect x86 client is installed.");
+    if(!temporary.empty())DeleteFileW(temporary.c_str());
     return false;
   }
   ULONG_PTR cookie=0;
@@ -434,6 +490,7 @@ static bool loadWithManifest(const std::wstring& path,const char* version) {
     DeactivateActCtx(0,cookie);
   }
   ReleaseActCtx(handle);
+  if(!temporary.empty())DeleteFileW(temporary.c_str());
   return okay;
 }
 static std::wstring installerPath() {
@@ -576,7 +633,7 @@ static bool writeSpeed(double fps) {
 }
 int main() {
   SetConsoleOutputCP(CP_UTF8);
-  puts("FSX MACH 101 POWER-THROTTLE 2.4 — SPEED AND WHEEL DIAGNOSTICS");
+  puts("FSX MACH 101 POWER-THROTTLE 2.5 — SELF-CONTAINED SIMCONNECT");
   puts("Separate program; no SoftTH changes or aircraft file edits.");
   puts("Mach 101 boost OFF by default; airplane throttle remains normal.");
   puts("On-screen indicator appears ONLY with boost ON and FSX foreground.");
@@ -584,7 +641,8 @@ int main() {
   puts("F1 = 0 percent throttle; F4 = 100 percent throttle");
   puts("F2/F3 = normal steps OFF; +1/-1 Mach per press ON");
   puts("Mouse wheel = native throttle steps OFF; +1/-1 Mach per notch ON");
-  puts("Accepts low-level wheel events or RAW mouse input (DirectInput fallback).");
+  puts("Accepts wheel events in FSX-owned fullscreen/menu windows.");
+  puts("Ctrl+Alt+W disables wheel-to-throttle when using FSX dialogs.");
   puts("Ctrl+Alt+W = wheel mapping ON / OFF");
   puts("Ctrl+Alt+D = diagnostic status and wheel event counters");
   puts("Wheel control works in normal mode even without SimConnect.");
@@ -627,6 +685,8 @@ int main() {
     printf("WARNING: fine F2/F3 keyboard hook unavailable, Windows error %lu.\n",
            static_cast<unsigned long>(GetLastError()));
   puts("Waiting for FSX SimConnect connection. Start/load your flight.");
+  puts("SIMCONNECT NOTE: This single EXE includes its own activation manifests.");
+  puts("An official 32-bit FSX SimConnect.msi installation is still required.");
 
   Telemetry telemetry;
   bool connectedFlight=false;
@@ -696,6 +756,13 @@ int main() {
         DWORD fgPid=0;
         HWND fg=GetForegroundWindow();
         if(fg) GetWindowThreadProcessId(fg,&fgPid);
+        char className[64]={0},winTitle[128]={0};
+        if(fg) {
+          GetClassNameA(fg,className,sizeof(className));
+          GetWindowTextA(fg,winTitle,sizeof(winTitle));
+        }
+        printf("FOREGROUND: HWND=0x%p class=<%s> title=<%s> eligible=%d\n",
+               static_cast<void*>(fg),className,winTitle,focusedFSX()?1:0);
         printf("DIAGNOSTIC: FSX pid=%lu foreground pid=%lu; wheel hook=%s; enabled=%ld; boost=%ld; SimConnect=%s; mapped=%d; telemetry=%d\n",
                static_cast<unsigned long>(gFSXPid),
                static_cast<unsigned long>(fgPid),
